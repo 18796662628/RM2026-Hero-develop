@@ -1,6 +1,7 @@
 #ifndef ROBOT_CMD_H
 #define ROBOT_CMD_H
 
+#include "robot_def.h"
 
 /**
  * @brief 机器人核心控制任务初始化,会被RobotInit()调用
@@ -13,6 +14,7 @@ void RobotCMDInit();
  * 
  */
 void RobotCMDTask();
-extern  float cym1;
+
+Robot_Safety_State_e RobotCMDGetSafetyState(void);
 
 #endif // !ROBOT_CMD_H

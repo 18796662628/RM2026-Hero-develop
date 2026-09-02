@@ -48,6 +48,12 @@ typedef enum {
 } Gimbal_Mode_e;
 
 typedef enum {
+    ROBOT_SAFETY_ESTOP = 0,
+    ROBOT_SAFETY_DISARMED,
+    ROBOT_SAFETY_ARMED,
+} Robot_Safety_State_e;
+
+typedef enum {
     SHOOT_OFF = 0,
     SHOOT_ON,
 } Shoot_Mode_e;
@@ -98,6 +104,7 @@ typedef struct
     Track_Wheel_Mode_e track_wheel_mode;
     float putter_offset;
     uint8_t is_power_on;           // 电管chassis口供电标志位 1->供电 0->断电
+    uint8_t robot_enabled;         // Safety gate set by the command application
 } Chassis_Ctrl_Cmd_s;
 
 typedef struct
@@ -112,6 +119,7 @@ typedef struct
     float pitch_target_acc;
     Auto_Aim_Mode_e auto_aim_mode; 
     Gimbal_Mode_e gimbal_mode;
+    uint8_t robot_enabled;         // Safety gate set by the command application
 } Gimbal_Ctrl_Cmd_s;
 
 typedef struct
