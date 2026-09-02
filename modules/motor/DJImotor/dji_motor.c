@@ -358,7 +358,7 @@ void DJIMotorControl()
 #endif
     }
     
-#if defined(ONE_BOARD) || defined(CHASSIS_BOARD)
+#if defined(CHASSIS_BOARD)
 int index = 0;
     if (dji_motor_instance[index]->stop_flag == MOTOR_ENABLED) {
         power_data.total_power = TotalPowerCalc(power_data.input_power);
