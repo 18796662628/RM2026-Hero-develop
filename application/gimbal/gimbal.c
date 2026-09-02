@@ -14,6 +14,36 @@ static attitude_t *gimbal_imu_data;
 
 #if defined(ONE_BOARD)
 static DJIMotorInstance *yaw_motor;
+
+static void ResetPIDState(PIDInstance *pid, float measure, float ref)
+{
+    pid->Measure = measure;
+    pid->Last_Measure = measure;
+    pid->Err = 0.0f;
+    pid->Last_Err = 0.0f;
+    pid->Last_ITerm = 0.0f;
+    pid->Pout = 0.0f;
+    pid->Iout = 0.0f;
+    pid->Dout = 0.0f;
+    pid->ITerm = 0.0f;
+    pid->Output = 0.0f;
+    pid->Last_Output = 0.0f;
+    pid->Last_Dout = 0.0f;
+    pid->Ref = ref;
+    pid->ERRORHandler.ERRORCount = 0U;
+    pid->ERRORHandler.ERRORType = PID_ERROR_NONE;
+}
+
+static void ResetYawController(void)
+{
+    ResetPIDState(&yaw_motor->motor_controller.angle_PID,
+        gimbal_imu_data->YawTotalAngle,
+        gimbal_imu_data->YawTotalAngle);
+    ResetPIDState(&yaw_motor->motor_controller.speed_PID,
+        gimbal_imu_data->Gyro[INS_YAW_ADDRESS_OFFSET],
+        0.0f);
+    yaw_motor->motor_controller.pid_ref = 0.0f;
+}
 #endif
 
 void GimbalInit(void)
@@ -74,14 +104,23 @@ void GimbalInit(void)
 void GimbalTask(void)
 {
     static uint8_t yaw_active;
+    static uint8_t yaw_online_last = 2U;
+    uint8_t yaw_online;
 
     SubGetMessage(gimbal_sub, &gimbal_cmd_recv);
 
 #if defined(ONE_BOARD)
+    yaw_online = DaemonIsOnline(yaw_motor->daemon);
+    if (yaw_online != yaw_online_last) {
+        LOGINFO("[gimbal] yaw CAN feedback %s", yaw_online ? "online" : "offline");
+        yaw_online_last = yaw_online;
+    }
+
     if (!gimbal_cmd_recv.robot_enabled
         || gimbal_cmd_recv.gimbal_mode != GIMBAL_GYRO_MODE
-        || !DaemonIsOnline(yaw_motor->daemon)) {
+        || !yaw_online) {
         DJIMotorStop(yaw_motor);
+        ResetYawController();
         yaw_active = 0U;
     } else {
         DJIMotorEnable(yaw_motor);

@@ -14,7 +14,7 @@
 #define YAW_RC_MAX_RATE_DEG_PER_S       3.0f
 #define YAW_RC_DIRECTION                -1.0f
 #define YAW_ANGLE_PID_MAX_OUT_DEG_PER_S 3.0f
-#define YAW_SPEED_PID_MAX_OUT           2000.0f
+#define YAW_SPEED_PID_MAX_OUT           8000.0f
 #define YAW_CONTROL_DT_MAX_S            0.01f
 
 #define YAW_CHASSIS_ALIGN_ECD     3566 // 云台和底盘对齐指向相同方向时的电机编码器值,若对云台有机械改动需要修改

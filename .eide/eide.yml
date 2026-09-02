@@ -182,7 +182,7 @@ targets:
           vendor: ST
         otherCmds: ""
         proType: 1
-        speed: 10
+        speed: 1000
       OpenOCD:
         baseAddr: "0x08000000"
         bin: ""

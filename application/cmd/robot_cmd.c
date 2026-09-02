@@ -163,6 +163,11 @@ void RobotCMDTask(void)
     SubGetMessage(gimbal_feed_sub, &gimbal_feedback);
 
     if (remote_control[TEMP].rc_update_flag) {
+        if (!remote_frame_seen) {
+            LOGINFO("[safety] remote frame received; left=%u right=%u",
+                remote_control[TEMP].rc.switch_left,
+                remote_control[TEMP].rc.switch_right);
+        }
         remote_frame_seen = 1U;
     }
 

@@ -31,7 +31,7 @@ Power_Data_s power_data; // 电机功率数据
 static CANInstance sender_assignment[6] = {
     [0] = {.can_handle = &hcan1, .txconf.StdId = 0x1FF, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [1] = {.can_handle = &hcan1, .txconf.StdId = 0x200, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
-    [2] = {.can_handle = &hcan1, .txconf.StdId = 0x2fe, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
+    [2] = {.can_handle = &hcan1, .txconf.StdId = 0x1fe, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [3] = {.can_handle = &hcan2, .txconf.StdId = 0x200, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [4] = {.can_handle = &hcan2, .txconf.StdId = 0x200, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [5] = {.can_handle = &hcan2, .txconf.StdId = 0x1fe, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
@@ -106,6 +106,16 @@ static void MotorSenderGrouping(DJIMotorInstance *motor, CAN_Init_Config_s *conf
             break;
 
         case GM6020:
+#if defined(ONE_BOARD)
+            if (motor_id < 4) {
+                motor_send_num = motor_id;
+                motor_grouping = config->can_handle == &hcan1 ? 2 : 5;
+            } else {
+                LOGERROR("[dji_motor] GM6020 ID 5-8 is not configured for the single-board sender groups.");
+                while (1)
+                    ;
+            }
+#else
             if (motor_id < 4) {
                 motor_send_num = motor_id;
                 motor_grouping = 5;
@@ -113,6 +123,7 @@ static void MotorSenderGrouping(DJIMotorInstance *motor, CAN_Init_Config_s *conf
                 motor_send_num = motor_id - 4;
                 motor_grouping = 2;
             }
+#endif
 
             config->rx_id                      = 0x204 + motor_id + 1; // 把ID+1,进行分组设置
             sender_enable_flag[motor_grouping] = 1;                    // 只要有电机注册到这个分组,置为1;在发送函数中会通过此标志判断是否有电机注册
