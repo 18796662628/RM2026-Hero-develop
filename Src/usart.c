@@ -104,6 +104,9 @@ void MX_USART6_UART_Init(void)
 
   /* USER CODE END USART6_Init 1 */
   huart6.Instance = USART6;
+  #if defined(ONE_BOARD)
+  huart6.Init.BaudRate = 115200;
+  #endif
   #if defined(GIMBAL_BOARD)
   huart6.Init.BaudRate = 921600;
   #endif
