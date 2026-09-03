@@ -5,6 +5,7 @@
 #include "message_center.h"
 #include "referee_init.h"
 #include "buzzer.h"
+#include "bsp_log.h"
 
 #include "general_def.h"
 #include "bsp_dwt.h"
@@ -339,9 +340,79 @@ static void PutterMotorCalibrationLimit()
 
 #endif
 
+#if defined(ONE_BOARD)
+static Subscriber_t *one_board_chassis_sub;
+static Chassis_Ctrl_Cmd_s one_board_chassis_cmd;
+static DJIMotorInstance *one_board_motor_lf;
+static DJIMotorInstance *one_board_motor_rf;
+static DJIMotorInstance *one_board_motor_lb;
+static DJIMotorInstance *one_board_motor_rb;
+
+static float OneBoardChassisLimit(float value)
+{
+    return float_constrain(value, -CHASSIS_WHEEL_MAX_REF, CHASSIS_WHEEL_MAX_REF);
+}
+
+static void OneBoardChassisStop(void)
+{
+    DJIMotorStop(one_board_motor_lf);
+    DJIMotorStop(one_board_motor_rf);
+    DJIMotorStop(one_board_motor_lb);
+    DJIMotorStop(one_board_motor_rb);
+}
+
+static uint8_t OneBoardChassisMotorsOnline(void)
+{
+    return DaemonIsOnline(one_board_motor_lf->daemon)
+        && DaemonIsOnline(one_board_motor_rf->daemon)
+        && DaemonIsOnline(one_board_motor_lb->daemon)
+        && DaemonIsOnline(one_board_motor_rb->daemon);
+}
+#endif
+
 void ChassisInit()
 {
-    #ifdef CHASSIS_BOARD
+    #if defined(ONE_BOARD)
+    Motor_Init_Config_s chassis_motor_config = {
+        .can_init_config = {
+            .can_handle = &hcan1,
+        },
+        .controller_param_init_config = {
+            .speed_PID = {
+                .Kp = 1.0f,
+                .Ki = 0.0f,
+                .Kd = 0.0f,
+                .IntegralLimit = 3000.0f,
+                .Improve = PID_Trapezoid_Intergral | PID_Integral_Limit
+                    | PID_Derivative_On_Measurement,
+                .MaxOut = CHASSIS_WHEEL_MAX_REF,
+            },
+        },
+        .controller_setting_init_config = {
+            .angle_feedback_source = MOTOR_FEED,
+            .speed_feedback_source = MOTOR_FEED,
+            .outer_loop_type = SPEED_LOOP,
+            .close_loop_type = SPEED_LOOP,
+        },
+        .motor_type = M3508,
+    };
+
+    chassis_motor_config.can_init_config.tx_id = 1U;
+    chassis_motor_config.controller_setting_init_config.motor_reverse_flag = MOTOR_DIRECTION_REVERSE;
+    one_board_motor_lf = DJIMotorInit(&chassis_motor_config);
+    chassis_motor_config.can_init_config.tx_id = 2U;
+    chassis_motor_config.controller_setting_init_config.motor_reverse_flag = MOTOR_DIRECTION_NORMAL;
+    one_board_motor_rf = DJIMotorInit(&chassis_motor_config);
+    chassis_motor_config.can_init_config.tx_id = 3U;
+    chassis_motor_config.controller_setting_init_config.motor_reverse_flag = MOTOR_DIRECTION_NORMAL;
+    one_board_motor_rb = DJIMotorInit(&chassis_motor_config);
+    chassis_motor_config.can_init_config.tx_id = 4U;
+    chassis_motor_config.controller_setting_init_config.motor_reverse_flag = MOTOR_DIRECTION_REVERSE;
+    one_board_motor_lb = DJIMotorInit(&chassis_motor_config);
+
+    one_board_chassis_sub = SubRegister("chassis_cmd", sizeof(Chassis_Ctrl_Cmd_s));
+    LOGINFO("[chassis] four M3508 motors registered on CAN1");
+    #elif defined(CHASSIS_BOARD)
     chassis_IMU_data = INS_Init();
     Motor_Init_Config_s chassis_motor_config = {
         .can_init_config.can_handle   = &hcan1,
@@ -483,12 +554,52 @@ void ChassisInit()
 
     chassis_sub = SubRegister("chassis_cmd", sizeof(Chassis_Ctrl_Cmd_s));
     chassis_pub = PubRegister("chassis_feed", sizeof(Chassis_Upload_Data_s));
-#endif
+    #endif
 }
 
 void ChassisTask()
 {
-    #ifdef CHASSIS_BOARD
+    #if defined(ONE_BOARD)
+    float chassis_vx;
+    float chassis_vy;
+    float wheel_lf;
+    float wheel_rf;
+    float wheel_lb;
+    float wheel_rb;
+    static uint8_t wheels_online_last = 2U;
+    uint8_t wheels_online;
+
+    SubGetMessage(one_board_chassis_sub, &one_board_chassis_cmd);
+    wheels_online = OneBoardChassisMotorsOnline();
+    if (wheels_online != wheels_online_last) {
+        LOGINFO("[chassis] wheel CAN feedback %s", wheels_online ? "online" : "offline");
+        wheels_online_last = wheels_online;
+    }
+
+    if (!one_board_chassis_cmd.robot_enabled
+        || one_board_chassis_cmd.chassis_mode == CHASSIS_ZERO_FORCE
+        || !wheels_online) {
+        OneBoardChassisStop();
+        return;
+    }
+
+    DJIMotorEnable(one_board_motor_lf);
+    DJIMotorEnable(one_board_motor_rf);
+    DJIMotorEnable(one_board_motor_lb);
+    DJIMotorEnable(one_board_motor_rb);
+
+    chassis_vx = one_board_chassis_cmd.vx;
+    chassis_vy = one_board_chassis_cmd.vy;
+    wheel_lf = -chassis_vx - chassis_vy + one_board_chassis_cmd.wz * LF_CENTER;
+    wheel_rf = -chassis_vx + chassis_vy - one_board_chassis_cmd.wz * RF_CENTER;
+    wheel_lb = -chassis_vx + chassis_vy + one_board_chassis_cmd.wz * LB_CENTER;
+    wheel_rb = -chassis_vx - chassis_vy - one_board_chassis_cmd.wz * RB_CENTER;
+
+    DJIMotorSetRef(one_board_motor_lf, OneBoardChassisLimit(wheel_lf));
+    DJIMotorSetRef(one_board_motor_rf, OneBoardChassisLimit(wheel_rf));
+    DJIMotorSetRef(one_board_motor_lb, OneBoardChassisLimit(wheel_lb));
+    DJIMotorSetRef(one_board_motor_rb, OneBoardChassisLimit(wheel_rb));
+    #elif defined(CHASSIS_BOARD)
     SubGetMessage(chassis_sub, &chassis_cmd_recv);
     if (chassis_cmd_recv.chassis_mode == CHASSIS_ZERO_FORCE || 
         !calibration_l_finished || !calibration_r_finished)
@@ -600,4 +711,3 @@ void ChassisTask()
     PubPushMessage(chassis_pub, (void *)&chassis_feedback_data);
     #endif
 }
-

@@ -4,6 +4,7 @@
 #include "remote_control.h"
 #include "bsp_dwt.h"
 #include "bsp_log.h"
+#include "math.h"
 
 #define ARM_HOLD_TICKS 500U
 
@@ -28,6 +29,10 @@ static uint32_t pitch_control_tick;
 static float pitch_target_angle;
 static float pitch_soft_limit_min;
 static float pitch_soft_limit_max;
+static uint8_t chassis_rotate_initialized;
+static uint32_t chassis_rotate_control_tick;
+static float chassis_rotate_filtered;
+static float chassis_rotate_command;
 
 static uint8_t IsValidSwitchState(uint8_t switch_state)
 {
@@ -64,6 +69,12 @@ static void SetSafeCommands(void)
     chassis_cmd.wz = 0.0f;
     chassis_cmd.offset_angle = 0.0f;
     chassis_cmd.chassis_mode = CHASSIS_ZERO_FORCE;
+    chassis_cmd.supercap_flag = SUPERCAP_UNUSE;
+    chassis_cmd.power_buffer = 0U;
+    chassis_cmd.power_limit = 0U;
+    chassis_cmd.track_wheel_mode = TRACK_WHEEL_OFF;
+    chassis_cmd.putter_offset = 0.0f;
+    chassis_cmd.is_power_on = 0U;
     chassis_cmd.robot_enabled = 0U;
 
     gimbal_cmd.yaw_target_angle = 0.0f;
@@ -75,6 +86,66 @@ static void SetSafeCommands(void)
     gimbal_cmd.auto_aim_mode = AUTO_AIM_OFF;
     gimbal_cmd.gimbal_mode = GIMBAL_ZERO_FORCE;
     gimbal_cmd.robot_enabled = 0U;
+}
+
+static float MapChassisStick(int16_t stick, float max_value)
+{
+    float value = (float)stick;
+
+    if (fabsf(value) < CHASSIS_RC_DEADBAND) {
+        return 0.0f;
+    }
+
+    return value * max_value / RC_STICK_FULL_SCALE;
+}
+
+static float ShapeChassisRotateCommand(float rotate_raw)
+{
+    float dt;
+    float max_delta;
+
+    if (!chassis_rotate_initialized) {
+        DWT_GetDeltaT(&chassis_rotate_control_tick);
+        chassis_rotate_initialized = 1U;
+        return 0.0f;
+    }
+
+    dt = DWT_GetDeltaT(&chassis_rotate_control_tick);
+    if (dt > CHASSIS_CONTROL_DT_MAX_S) {
+        dt = CHASSIS_CONTROL_DT_MAX_S;
+    }
+
+    chassis_rotate_filtered += (rotate_raw - chassis_rotate_filtered)
+        * dt / (CHASSIS_ROTATE_FILTER_TAU_S + dt);
+    max_delta = CHASSIS_ROTATE_ACCEL_LIMIT_PER_S2 * dt;
+    if (chassis_rotate_filtered - chassis_rotate_command > max_delta) {
+        chassis_rotate_command += max_delta;
+    } else if (chassis_rotate_command - chassis_rotate_filtered > max_delta) {
+        chassis_rotate_command -= max_delta;
+    } else {
+        chassis_rotate_command = chassis_rotate_filtered;
+    }
+
+    return chassis_rotate_command;
+}
+
+static void BuildArmedChassisCommand(void)
+{
+    chassis_cmd.vx = MapChassisStick(remote_control[TEMP].rc.rocker_r1,
+        CHASSIS_RC_MAX_SPEED);
+    chassis_cmd.vy = MapChassisStick(remote_control[TEMP].rc.rocker_r_,
+        CHASSIS_RC_MAX_SPEED);
+    chassis_cmd.wz = ShapeChassisRotateCommand(
+        MapChassisStick(remote_control[TEMP].rc.dial, CHASSIS_RC_MAX_ROTATE));
+    chassis_cmd.offset_angle = 0.0f;
+    chassis_cmd.chassis_mode = CHASSIS_NO_FOLLOW;
+    chassis_cmd.supercap_flag = SUPERCAP_UNUSE;
+    chassis_cmd.power_buffer = 0U;
+    chassis_cmd.power_limit = 0U;
+    chassis_cmd.track_wheel_mode = TRACK_WHEEL_OFF;
+    chassis_cmd.putter_offset = 0.0f;
+    chassis_cmd.is_power_on = 1U;
+    chassis_cmd.robot_enabled = 1U;
 }
 
 static void BuildArmedGimbalCommand(void)
@@ -225,11 +296,15 @@ void RobotCMDTask(void)
     SetSafeCommands();
     if (safety_state == ROBOT_SAFETY_ARMED) {
         BuildArmedGimbalCommand();
+        BuildArmedChassisCommand();
     } else {
         yaw_target_initialized = 0U;
         yaw_rate_filtered = 0.0f;
         yaw_rate_command = 0.0f;
         pitch_target_initialized = 0U;
+        chassis_rotate_initialized = 0U;
+        chassis_rotate_filtered = 0.0f;
+        chassis_rotate_command = 0.0f;
     }
 
     PubPushMessage(gimbal_cmd_pub, &gimbal_cmd);

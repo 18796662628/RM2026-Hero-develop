@@ -72,7 +72,7 @@ void GimbalInit(void)
         },
         .controller_param_init_config = {
             .angle_PID = {
-                .Kp = 0.8f,
+                .Kp = YAW_ANGLE_PID_KP,
                 .Ki = 0.0f,
                 .Kd = 0.02f,
                 .DeadBand = 0.0f,
