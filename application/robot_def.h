@@ -21,17 +21,20 @@
 #define YAW_SPEED_PID_MAX_OUT           8000.0f
 #define YAW_CONTROL_DT_MAX_S            0.01f
 
-/* Conservative pitch limits until the mechanical range is confirmed. */
+/* Pitch limits are relative to the verified middle position at arming. */
 #define PITCH_RC_MAX_RATE_DEG_PER_S       20.0f
 #define PITCH_RC_DIRECTION               -1.0f
+#define PITCH_ANGLE_PID_KP                2.0f
 #define PITCH_ANGLE_PID_MAX_OUT_DEG_PER_S 20.0f
-#define PITCH_SPEED_PID_MAX_OUT           2000.0f
+#define PITCH_SPEED_PID_MAX_OUT           4000.0f
 #define PITCH_CONTROL_DT_MAX_S            0.01f
-#define PITCH_SOFT_LIMIT_FROM_ARM_DEG     5.0f
+#define PITCH_SOFT_LIMIT_DOWN_FROM_ARM_DEG 12.0f
+#define PITCH_SOFT_LIMIT_UP_FROM_ARM_DEG   40.0f
 
 #define CHASSIS_RC_DEADBAND               15.0f
 #define CHASSIS_RC_MAX_SPEED              6000.0f
 #define CHASSIS_RC_MAX_ROTATE             800.0f
+#define CHASSIS_AUTO_ROTATE_SPEED          600.0f
 #define CHASSIS_ROTATE_FILTER_TAU_S       0.04f
 #define CHASSIS_ROTATE_ACCEL_LIMIT_PER_S2 4000.0f
 #define CHASSIS_CONTROL_DT_MAX_S          0.01f

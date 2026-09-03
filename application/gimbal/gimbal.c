@@ -118,7 +118,7 @@ void GimbalInit(void)
         },
         .controller_param_init_config = {
             .angle_PID = {
-                .Kp = 0.6f,
+                .Kp = PITCH_ANGLE_PID_KP,
                 .Ki = 0.05f,
                 .Kd = 0.00001f,
                 .DeadBand = 0.0f,

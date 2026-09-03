@@ -33,6 +33,7 @@ static uint8_t chassis_rotate_initialized;
 static uint32_t chassis_rotate_control_tick;
 static float chassis_rotate_filtered;
 static float chassis_rotate_command;
+static Chassis_Mode_e chassis_mode_last = CHASSIS_ZERO_FORCE;
 
 static uint8_t IsValidSwitchState(uint8_t switch_state)
 {
@@ -99,6 +100,20 @@ static float MapChassisStick(int16_t stick, float max_value)
     return value * max_value / RC_STICK_FULL_SCALE;
 }
 
+static const char *ChassisModeName(Chassis_Mode_e mode)
+{
+    switch (mode) {
+        case CHASSIS_ROTATE:
+            return "auto rotate forward";
+        case CHASSIS_NO_FOLLOW:
+            return "manual omni";
+        case CHASSIS_REVERSE_ROTATE:
+            return "auto rotate reverse";
+        default:
+            return "zero force";
+    }
+}
+
 static float ShapeChassisRotateCommand(float rotate_raw)
 {
     float dt;
@@ -131,14 +146,32 @@ static float ShapeChassisRotateCommand(float rotate_raw)
 
 static void BuildArmedChassisCommand(void)
 {
+    float rotate_raw;
+
     chassis_cmd.vx = MapChassisStick(remote_control[TEMP].rc.rocker_r1,
         CHASSIS_RC_MAX_SPEED);
     chassis_cmd.vy = MapChassisStick(remote_control[TEMP].rc.rocker_r_,
         CHASSIS_RC_MAX_SPEED);
-    chassis_cmd.wz = ShapeChassisRotateCommand(
-        MapChassisStick(remote_control[TEMP].rc.dial, CHASSIS_RC_MAX_ROTATE));
     chassis_cmd.offset_angle = 0.0f;
-    chassis_cmd.chassis_mode = CHASSIS_NO_FOLLOW;
+
+    if (switch_is_up(remote_control[TEMP].rc.switch_right)) {
+        chassis_cmd.chassis_mode = CHASSIS_ROTATE;
+        rotate_raw = CHASSIS_AUTO_ROTATE_SPEED;
+    } else if (switch_is_down(remote_control[TEMP].rc.switch_right)) {
+        chassis_cmd.chassis_mode = CHASSIS_REVERSE_ROTATE;
+        rotate_raw = -CHASSIS_AUTO_ROTATE_SPEED;
+    } else {
+        chassis_cmd.chassis_mode = CHASSIS_NO_FOLLOW;
+        rotate_raw = MapChassisStick(remote_control[TEMP].rc.dial,
+            CHASSIS_RC_MAX_ROTATE);
+    }
+    chassis_cmd.wz = ShapeChassisRotateCommand(rotate_raw);
+
+    if (chassis_cmd.chassis_mode != chassis_mode_last) {
+        LOGINFO("[chassis] mode=%s", ChassisModeName(chassis_cmd.chassis_mode));
+        chassis_mode_last = chassis_cmd.chassis_mode;
+    }
+
     chassis_cmd.supercap_flag = SUPERCAP_UNUSE;
     chassis_cmd.power_buffer = 0U;
     chassis_cmd.power_limit = 0U;
@@ -194,8 +227,8 @@ static void BuildArmedGimbalCommand(void)
 
     if (!pitch_target_initialized) {
         pitch_target_angle = gimbal_feedback.gimbal_imu_data->Pitch;
-        pitch_soft_limit_min = pitch_target_angle - PITCH_SOFT_LIMIT_FROM_ARM_DEG;
-        pitch_soft_limit_max = pitch_target_angle + PITCH_SOFT_LIMIT_FROM_ARM_DEG;
+        pitch_soft_limit_min = pitch_target_angle - PITCH_SOFT_LIMIT_DOWN_FROM_ARM_DEG;
+        pitch_soft_limit_max = pitch_target_angle + PITCH_SOFT_LIMIT_UP_FROM_ARM_DEG;
         DWT_GetDeltaT(&pitch_control_tick);
         pitch_target_initialized = 1U;
     } else {
@@ -305,6 +338,7 @@ void RobotCMDTask(void)
         chassis_rotate_initialized = 0U;
         chassis_rotate_filtered = 0.0f;
         chassis_rotate_command = 0.0f;
+        chassis_mode_last = CHASSIS_ZERO_FORCE;
     }
 
     PubPushMessage(gimbal_cmd_pub, &gimbal_cmd);
