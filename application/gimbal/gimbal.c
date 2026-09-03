@@ -14,6 +14,7 @@ static attitude_t *gimbal_imu_data;
 
 #if defined(ONE_BOARD)
 static DJIMotorInstance *yaw_motor;
+static DJIMotorInstance *pitch_motor;
 
 static void ResetPIDState(PIDInstance *pid, float measure, float ref)
 {
@@ -44,6 +45,17 @@ static void ResetYawController(void)
         0.0f);
     yaw_motor->motor_controller.pid_ref = 0.0f;
 }
+
+static void ResetPitchController(void)
+{
+    ResetPIDState(&pitch_motor->motor_controller.angle_PID,
+        gimbal_imu_data->Pitch,
+        gimbal_imu_data->Pitch);
+    ResetPIDState(&pitch_motor->motor_controller.speed_PID,
+        gimbal_imu_data->Gyro[INS_PITCH_ADDRESS_OFFSET],
+        0.0f);
+    pitch_motor->motor_controller.pid_ref = 0.0f;
+}
 #endif
 
 void GimbalInit(void)
@@ -71,9 +83,9 @@ void GimbalInit(void)
                 .Measure_LPF_RC = 0.5f,
             },
             .speed_PID = {
-                .Kp = 18000.0f,
-                .Ki = 7000.0f,
-                .Kd = 10.0f,
+                .Kp = 3000.0f,
+                .Ki = 600.0f,
+                .Kd = 0.0f,
                 .Improve = PID_Trapezoid_Intergral | PID_Integral_Limit
                     | PID_Derivative_On_Measurement | PID_MeasureFiliter,
                 .IntegralLimit = 1200.0f,
@@ -98,6 +110,50 @@ void GimbalInit(void)
 
     yaw_motor = DJIMotorInit(&yaw_config);
     LOGINFO("[gimbal] yaw registered on CAN1, id 1");
+
+    Motor_Init_Config_s pitch_config = {
+        .can_init_config = {
+            .can_handle = &hcan2,
+            .tx_id = 2U,
+        },
+        .controller_param_init_config = {
+            .angle_PID = {
+                .Kp = 0.6f,
+                .Ki = 0.05f,
+                .Kd = 0.00001f,
+                .DeadBand = 0.0f,
+                .Improve = PID_Trapezoid_Intergral | PID_Integral_Limit
+                    | PID_Derivative_On_Measurement | PID_MeasureFiliter,
+                .IntegralLimit = 2.0f,
+                .MaxOut = PITCH_ANGLE_PID_MAX_OUT_DEG_PER_S,
+                .Measure_LPF_RC = 0.5f,
+            },
+            .speed_PID = {
+                .Kp = -9000.0f,
+                .Ki = -500.0f,
+                .Kd = -4.0f,
+                .Improve = PID_Trapezoid_Intergral | PID_Integral_Limit
+                    | PID_Derivative_On_Measurement | PID_MeasureFiliter,
+                .IntegralLimit = 1000.0f,
+                .MaxOut = PITCH_SPEED_PID_MAX_OUT,
+                .Measure_LPF_RC = 0.5f,
+            },
+            .other_angle_feedback_ptr = &gimbal_imu_data->Pitch,
+            .other_speed_feedback_ptr = &gimbal_imu_data->Gyro[INS_PITCH_ADDRESS_OFFSET],
+            .pid_struct_type = Cascade_PID,
+        },
+        .controller_setting_init_config = {
+            .angle_feedback_source = OTHER_FEED,
+            .speed_feedback_source = OTHER_FEED,
+            .outer_loop_type = ANGLE_LOOP,
+            .close_loop_type = ANGLE_LOOP | SPEED_LOOP,
+            .motor_reverse_flag = MOTOR_DIRECTION_NORMAL,
+        },
+        .motor_type = GM6020,
+    };
+
+    pitch_motor = DJIMotorInit(&pitch_config);
+    LOGINFO("[gimbal] pitch registered on CAN2, id 2");
 #endif
 }
 
@@ -105,7 +161,10 @@ void GimbalTask(void)
 {
     static uint8_t yaw_active;
     static uint8_t yaw_online_last = 2U;
+    static uint8_t pitch_active;
+    static uint8_t pitch_online_last = 2U;
     uint8_t yaw_online;
+    uint8_t pitch_online;
 
     SubGetMessage(gimbal_sub, &gimbal_cmd_recv);
 
@@ -114,6 +173,11 @@ void GimbalTask(void)
     if (yaw_online != yaw_online_last) {
         LOGINFO("[gimbal] yaw CAN feedback %s", yaw_online ? "online" : "offline");
         yaw_online_last = yaw_online;
+    }
+    pitch_online = DaemonIsOnline(pitch_motor->daemon);
+    if (pitch_online != pitch_online_last) {
+        LOGINFO("[gimbal] pitch CAN feedback %s", pitch_online ? "online" : "offline");
+        pitch_online_last = pitch_online;
     }
 
     if (!gimbal_cmd_recv.robot_enabled
@@ -135,8 +199,28 @@ void GimbalTask(void)
         }
     }
 
+    if (!gimbal_cmd_recv.robot_enabled
+        || gimbal_cmd_recv.gimbal_mode != GIMBAL_GYRO_MODE
+        || !pitch_online) {
+        DJIMotorStop(pitch_motor);
+        ResetPitchController();
+        pitch_active = 0U;
+    } else {
+        DJIMotorEnable(pitch_motor);
+        DJIMotorChangeFeed(pitch_motor, ANGLE_LOOP, OTHER_FEED);
+        DJIMotorChangeFeed(pitch_motor, SPEED_LOOP, OTHER_FEED);
+        DJIMotorOuterLoop(pitch_motor, ANGLE_LOOP);
+        DJIMotorSetRef(pitch_motor, gimbal_cmd_recv.pitch_target_angle);
+
+        if (!pitch_active) {
+            LOGINFO("[gimbal] pitch gyro control enabled");
+            pitch_active = 1U;
+        }
+    }
+
     gimbal_feedback_data.yaw_ecd = yaw_motor->measure.ecd;
     gimbal_feedback_data.yaw_motor_single_round_angle = yaw_motor->measure.angle_single_round;
+    gimbal_feedback_data.pitch_ecd = pitch_motor->measure.ecd;
 #endif
 
     gimbal_feedback_data.gimbal_imu_data = gimbal_imu_data;

@@ -9,13 +9,24 @@
 #define YAW_K                  0.00025f
 #define PITCH_K                0.00025f
 
-/* Conservative limits for the first yaw closed-loop test. */
+/* Yaw command shaping and controller limits. */
 #define RC_STICK_FULL_SCALE             660.0f
-#define YAW_RC_MAX_RATE_DEG_PER_S       3.0f
+#define YAW_RC_DEADBAND                 15.0f
+#define YAW_RC_MAX_RATE_DEG_PER_S       6.0f
 #define YAW_RC_DIRECTION                -1.0f
-#define YAW_ANGLE_PID_MAX_OUT_DEG_PER_S 3.0f
+#define YAW_RC_FILTER_TAU_S             0.05f
+#define YAW_RC_ACCEL_LIMIT_DEG_PER_S2   60.0f
+#define YAW_ANGLE_PID_MAX_OUT_DEG_PER_S 6.0f
 #define YAW_SPEED_PID_MAX_OUT           8000.0f
 #define YAW_CONTROL_DT_MAX_S            0.01f
+
+/* Conservative pitch limits until the mechanical range is confirmed. */
+#define PITCH_RC_MAX_RATE_DEG_PER_S       2.0f
+#define PITCH_RC_DIRECTION               -1.0f
+#define PITCH_ANGLE_PID_MAX_OUT_DEG_PER_S 2.0f
+#define PITCH_SPEED_PID_MAX_OUT           2000.0f
+#define PITCH_CONTROL_DT_MAX_S            0.01f
+#define PITCH_SOFT_LIMIT_FROM_ARM_DEG     5.0f
 
 #define YAW_CHASSIS_ALIGN_ECD     3566 // 云台和底盘对齐指向相同方向时的电机编码器值,若对云台有机械改动需要修改
 #define YAW_ECD_GREATER_THAN_4096 0    // ALIGN_ECD算云台偏转角度

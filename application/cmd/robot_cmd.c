@@ -21,6 +21,13 @@ static uint8_t remote_frame_seen;
 static uint8_t yaw_target_initialized;
 static uint32_t yaw_control_tick;
 static float yaw_target_angle;
+static float yaw_rate_filtered;
+static float yaw_rate_command;
+static uint8_t pitch_target_initialized;
+static uint32_t pitch_control_tick;
+static float pitch_target_angle;
+static float pitch_soft_limit_min;
+static float pitch_soft_limit_max;
 
 static uint8_t IsValidSwitchState(uint8_t switch_state)
 {
@@ -72,7 +79,10 @@ static void SetSafeCommands(void)
 
 static void BuildArmedGimbalCommand(void)
 {
-    float yaw_rate;
+    float yaw_rate_raw;
+    float yaw_rate_target;
+    float max_rate_delta;
+    float pitch_rate;
     float dt;
 
     if (gimbal_feedback.gimbal_imu_data == NULL) {
@@ -89,14 +99,54 @@ static void BuildArmedGimbalCommand(void)
             dt = YAW_CONTROL_DT_MAX_S;
         }
 
-        yaw_rate = YAW_RC_DIRECTION * (float)remote_control[TEMP].rc.rocker_l_
+        yaw_rate_raw = (float)remote_control[TEMP].rc.rocker_l_;
+        if (fabsf(yaw_rate_raw) < YAW_RC_DEADBAND) {
+            yaw_rate_raw = 0.0f;
+        }
+        yaw_rate_raw = YAW_RC_DIRECTION * yaw_rate_raw
             * YAW_RC_MAX_RATE_DEG_PER_S / RC_STICK_FULL_SCALE;
-        yaw_target_angle += yaw_rate * dt;
+
+        /* Filter stick noise, then limit command acceleration for smooth starts/stops. */
+        yaw_rate_filtered += (yaw_rate_raw - yaw_rate_filtered)
+            * dt / (YAW_RC_FILTER_TAU_S + dt);
+        max_rate_delta = YAW_RC_ACCEL_LIMIT_DEG_PER_S2 * dt;
+        yaw_rate_target = yaw_rate_filtered;
+        if (yaw_rate_target - yaw_rate_command > max_rate_delta) {
+            yaw_rate_command += max_rate_delta;
+        } else if (yaw_rate_command - yaw_rate_target > max_rate_delta) {
+            yaw_rate_command -= max_rate_delta;
+        } else {
+            yaw_rate_command = yaw_rate_target;
+        }
+        yaw_target_angle += yaw_rate_command * dt;
+    }
+
+    if (!pitch_target_initialized) {
+        pitch_target_angle = gimbal_feedback.gimbal_imu_data->Pitch;
+        pitch_soft_limit_min = pitch_target_angle - PITCH_SOFT_LIMIT_FROM_ARM_DEG;
+        pitch_soft_limit_max = pitch_target_angle + PITCH_SOFT_LIMIT_FROM_ARM_DEG;
+        DWT_GetDeltaT(&pitch_control_tick);
+        pitch_target_initialized = 1U;
+    } else {
+        dt = DWT_GetDeltaT(&pitch_control_tick);
+        if (dt > PITCH_CONTROL_DT_MAX_S) {
+            dt = PITCH_CONTROL_DT_MAX_S;
+        }
+
+        pitch_rate = PITCH_RC_DIRECTION * (float)remote_control[TEMP].rc.rocker_l1
+            * PITCH_RC_MAX_RATE_DEG_PER_S / RC_STICK_FULL_SCALE;
+        pitch_target_angle += pitch_rate * dt;
+        if (pitch_target_angle > pitch_soft_limit_max) {
+            pitch_target_angle = pitch_soft_limit_max;
+        } else if (pitch_target_angle < pitch_soft_limit_min) {
+            pitch_target_angle = pitch_soft_limit_min;
+        }
     }
 
     gimbal_cmd.yaw_actual_angle = gimbal_feedback.gimbal_imu_data->YawTotalAngle;
     gimbal_cmd.yaw_actual_speed = gimbal_feedback.gimbal_imu_data->Gyro[INS_YAW_ADDRESS_OFFSET];
     gimbal_cmd.yaw_target_angle = yaw_target_angle;
+    gimbal_cmd.pitch_target_angle = pitch_target_angle;
     gimbal_cmd.gimbal_mode = GIMBAL_GYRO_MODE;
     gimbal_cmd.robot_enabled = 1U;
 }
@@ -177,6 +227,9 @@ void RobotCMDTask(void)
         BuildArmedGimbalCommand();
     } else {
         yaw_target_initialized = 0U;
+        yaw_rate_filtered = 0.0f;
+        yaw_rate_command = 0.0f;
+        pitch_target_initialized = 0U;
     }
 
     PubPushMessage(gimbal_cmd_pub, &gimbal_cmd);
