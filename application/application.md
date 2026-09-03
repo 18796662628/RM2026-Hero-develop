@@ -4,6 +4,8 @@
 
 这是application层的说明。
 
+RM电控培训作业当前单板实现的专用说明见 [rm_training_notes.md](rm_training_notes.md)。
+
 > todo: 是否有必要将所有电机等模块的初始化参数放到一个头文件？
 
 ## 使用说明
