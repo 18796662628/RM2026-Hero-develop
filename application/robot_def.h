@@ -34,7 +34,7 @@
 #define CHASSIS_RC_DEADBAND               15.0f
 #define CHASSIS_RC_MAX_SPEED              6000.0f
 #define CHASSIS_RC_MAX_ROTATE             800.0f
-#define CHASSIS_AUTO_ROTATE_SPEED          600.0f
+#define CHASSIS_AUTO_ROTATE_SPEED          800.0f
 #define CHASSIS_ROTATE_FILTER_TAU_S       0.04f
 #define CHASSIS_ROTATE_ACCEL_LIMIT_PER_S2 4000.0f
 #define CHASSIS_CONTROL_DT_MAX_S          0.01f
