@@ -220,6 +220,8 @@ void GimbalTask(void)
 
     gimbal_feedback_data.yaw_ecd = yaw_motor->measure.ecd;
     gimbal_feedback_data.yaw_motor_single_round_angle = yaw_motor->measure.angle_single_round;
+    gimbal_feedback_data.yaw_motor_total_angle = yaw_motor->measure.total_angle;
+    gimbal_feedback_data.yaw_feedback_online = yaw_online;
     gimbal_feedback_data.pitch_ecd = pitch_motor->measure.ecd;
 #endif
 

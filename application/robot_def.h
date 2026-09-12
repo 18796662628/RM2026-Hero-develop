@@ -194,6 +194,8 @@ typedef struct
 {
     uint16_t yaw_ecd;
     float yaw_motor_single_round_angle;
+    float yaw_motor_total_angle;
+    uint8_t yaw_feedback_online;
     uint16_t pitch_ecd;
     attitude_t *gimbal_imu_data;
 } Gimbal_Upload_Data_s;

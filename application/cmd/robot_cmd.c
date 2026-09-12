@@ -37,6 +37,123 @@ static Chassis_Mode_e chassis_mode_last = CHASSIS_ZERO_FORCE;
 
 /* Keep a directly addressable symbol for Ozone; this does not affect control. */
 volatile float yaw_angle_trace = 0.0f;
+volatile Chassis_Frame_Debug_s chassis_frame_debug;
+static uint8_t chassis_frame_trace_initialized;
+static float chassis_frame_imu_reference;
+static float chassis_frame_motor_reference;
+static uint8_t chassis_motion_frame_initialized;
+static Chassis_Mode_e chassis_motion_frame_mode = CHASSIS_ZERO_FORCE;
+static float chassis_motion_frame_imu_reference;
+static float chassis_motion_frame_motor_reference;
+
+static uint8_t IsSmallGyroMode(Chassis_Mode_e mode)
+{
+    return mode == CHASSIS_ROTATE || mode == CHASSIS_REVERSE_ROTATE;
+}
+
+static void ResetChassisMotionFrame(void)
+{
+    chassis_motion_frame_initialized = 0U;
+    chassis_motion_frame_mode = CHASSIS_ZERO_FORCE;
+    chassis_motion_frame_imu_reference = 0.0f;
+    chassis_motion_frame_motor_reference = 0.0f;
+    chassis_frame_debug.chassis_offset_command_deg = 0.0f;
+    chassis_frame_debug.chassis_field_frame_active = 0U;
+}
+
+/*
+ * Keep translational commands in the heading that was present when small-gyro
+ * mode was entered.  The IMU is on the gimbal, while the Yaw motor angle is
+ * measured relative to the chassis, so chassis rotation is IMU - motor.
+ * The chassis module applies R(offset_angle); therefore pass the negative
+ * chassis angle to obtain the required R(-heading) body-frame conversion.
+ */
+static float GetChassisFrameOffsetAngle(Chassis_Mode_e mode)
+{
+    float imu_delta;
+    float motor_delta;
+    float chassis_delta;
+
+    if (!IsSmallGyroMode(mode)
+        || gimbal_feedback.gimbal_imu_data == NULL
+        || !gimbal_feedback.yaw_feedback_online) {
+        ResetChassisMotionFrame();
+        return 0.0f;
+    }
+
+    if (!chassis_motion_frame_initialized
+        || chassis_motion_frame_mode != mode) {
+        chassis_motion_frame_imu_reference =
+            gimbal_feedback.gimbal_imu_data->YawTotalAngle;
+        chassis_motion_frame_motor_reference =
+            gimbal_feedback.yaw_motor_total_angle;
+        chassis_motion_frame_mode = mode;
+        chassis_motion_frame_initialized = 1U;
+        chassis_frame_debug.chassis_offset_command_deg = 0.0f;
+        chassis_frame_debug.chassis_field_frame_active = 1U;
+        return 0.0f;
+    }
+
+    imu_delta = gimbal_feedback.gimbal_imu_data->YawTotalAngle
+        - chassis_motion_frame_imu_reference;
+    motor_delta = gimbal_feedback.yaw_motor_total_angle
+        - chassis_motion_frame_motor_reference;
+    chassis_delta = imu_delta - motor_delta;
+
+    chassis_frame_debug.chassis_offset_command_deg = -chassis_delta;
+    chassis_frame_debug.chassis_field_frame_active = 1U;
+    return -chassis_delta;
+}
+
+static void UpdateChassisFrameDebug(void)
+{
+    float imu_yaw;
+    float motor_yaw;
+
+    chassis_frame_debug.safety_armed = safety_state == ROBOT_SAFETY_ARMED;
+    if (gimbal_feedback.gimbal_imu_data == NULL) {
+        chassis_frame_debug.yaw_feedback_online = 0U;
+        chassis_frame_debug.imu_yaw_delta_deg = 0.0f;
+        chassis_frame_debug.yaw_motor_delta_deg = 0.0f;
+        chassis_frame_debug.chassis_delta_imu_minus_motor_deg = 0.0f;
+        chassis_frame_debug.chassis_delta_imu_plus_motor_deg = 0.0f;
+        chassis_frame_debug.chassis_offset_command_deg = 0.0f;
+        chassis_frame_debug.chassis_field_frame_active = 0U;
+        chassis_frame_trace_initialized = 0U;
+        return;
+    }
+
+    imu_yaw = gimbal_feedback.gimbal_imu_data->YawTotalAngle;
+    motor_yaw = gimbal_feedback.yaw_motor_total_angle;
+    chassis_frame_debug.imu_yaw_total_deg = imu_yaw;
+    chassis_frame_debug.yaw_motor_total_deg = motor_yaw;
+    chassis_frame_debug.yaw_motor_ecd = gimbal_feedback.yaw_ecd;
+    chassis_frame_debug.yaw_feedback_online = gimbal_feedback.yaw_feedback_online;
+
+    if (safety_state == ROBOT_SAFETY_ESTOP || !gimbal_feedback.yaw_feedback_online) {
+        chassis_frame_trace_initialized = 0U;
+        chassis_frame_debug.imu_yaw_delta_deg = 0.0f;
+        chassis_frame_debug.yaw_motor_delta_deg = 0.0f;
+        chassis_frame_debug.chassis_delta_imu_minus_motor_deg = 0.0f;
+        chassis_frame_debug.chassis_delta_imu_plus_motor_deg = 0.0f;
+        chassis_frame_debug.chassis_offset_command_deg = 0.0f;
+        chassis_frame_debug.chassis_field_frame_active = 0U;
+        return;
+    }
+
+    if (!chassis_frame_trace_initialized) {
+        chassis_frame_imu_reference = imu_yaw;
+        chassis_frame_motor_reference = motor_yaw;
+        chassis_frame_trace_initialized = 1U;
+    }
+
+    chassis_frame_debug.imu_yaw_delta_deg = imu_yaw - chassis_frame_imu_reference;
+    chassis_frame_debug.yaw_motor_delta_deg = motor_yaw - chassis_frame_motor_reference;
+    chassis_frame_debug.chassis_delta_imu_minus_motor_deg =
+        chassis_frame_debug.imu_yaw_delta_deg - chassis_frame_debug.yaw_motor_delta_deg;
+    chassis_frame_debug.chassis_delta_imu_plus_motor_deg =
+        chassis_frame_debug.imu_yaw_delta_deg + chassis_frame_debug.yaw_motor_delta_deg;
+}
 
 static uint8_t IsValidSwitchState(uint8_t switch_state)
 {
@@ -150,6 +267,7 @@ static float ShapeChassisRotateCommand(float rotate_raw)
 static void BuildArmedChassisCommand(void)
 {
     float rotate_raw;
+    uint8_t small_gyro_mode;
 
     chassis_cmd.vx = MapChassisStick(remote_control[TEMP].rc.rocker_r1,
         CHASSIS_RC_MAX_SPEED);
@@ -168,7 +286,27 @@ static void BuildArmedChassisCommand(void)
         rotate_raw = MapChassisStick(remote_control[TEMP].rc.dial,
             CHASSIS_RC_MAX_ROTATE);
     }
-    chassis_cmd.wz = ShapeChassisRotateCommand(rotate_raw);
+
+    small_gyro_mode = IsSmallGyroMode(chassis_cmd.chassis_mode);
+    if (small_gyro_mode && !gimbal_feedback.yaw_feedback_online) {
+        chassis_cmd.vx = 0.0f;
+        chassis_cmd.vy = 0.0f;
+        rotate_raw = 0.0f;
+    }
+    chassis_cmd.offset_angle = GetChassisFrameOffsetAngle(chassis_cmd.chassis_mode);
+    chassis_frame_debug.chassis_command_vx = chassis_cmd.vx;
+    chassis_frame_debug.chassis_command_vy = chassis_cmd.vy;
+    chassis_frame_debug.chassis_command_mode = (uint8_t)chassis_cmd.chassis_mode;
+    if (small_gyro_mode && !gimbal_feedback.yaw_feedback_online) {
+        /* Do not let a stale filtered command keep the chassis spinning. */
+        chassis_rotate_initialized = 0U;
+        chassis_rotate_filtered = 0.0f;
+        chassis_rotate_command = 0.0f;
+        chassis_cmd.wz = 0.0f;
+    } else {
+        chassis_cmd.wz = ShapeChassisRotateCommand(rotate_raw);
+    }
+    chassis_frame_debug.chassis_command_wz = chassis_cmd.wz;
 
     if (chassis_cmd.chassis_mode != chassis_mode_last) {
         LOGINFO("[chassis] mode=%s", ChassisModeName(chassis_cmd.chassis_mode));
@@ -335,6 +473,7 @@ void RobotCMDTask(void)
     }
 
     UpdateSafetyState();
+    UpdateChassisFrameDebug();
     SetSafeCommands();
     if (safety_state == ROBOT_SAFETY_ARMED) {
         BuildArmedGimbalCommand();
@@ -348,6 +487,7 @@ void RobotCMDTask(void)
         chassis_rotate_filtered = 0.0f;
         chassis_rotate_command = 0.0f;
         chassis_mode_last = CHASSIS_ZERO_FORCE;
+        ResetChassisMotionFrame();
     }
 
     PubPushMessage(gimbal_cmd_pub, &gimbal_cmd);

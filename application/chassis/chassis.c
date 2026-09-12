@@ -6,6 +6,7 @@
 #include "referee_init.h"
 #include "buzzer.h"
 #include "bsp_log.h"
+#include "robot_cmd.h"
 
 #include "general_def.h"
 #include "bsp_dwt.h"
@@ -353,6 +354,35 @@ static float OneBoardChassisLimit(float value)
     return float_constrain(value, -CHASSIS_WHEEL_MAX_REF, CHASSIS_WHEEL_MAX_REF);
 }
 
+/* Preserve the mecanum wheel-speed ratio when translation and rotation are
+ * requested together. Independent clipping changes the commanded direction. */
+static float OneBoardChassisNormalize(float *wheel_lf, float *wheel_rf,
+    float *wheel_lb, float *wheel_rb)
+{
+    float max_abs = fabsf(*wheel_lf);
+    float scale = 1.0f;
+
+    if (fabsf(*wheel_rf) > max_abs) {
+        max_abs = fabsf(*wheel_rf);
+    }
+    if (fabsf(*wheel_lb) > max_abs) {
+        max_abs = fabsf(*wheel_lb);
+    }
+    if (fabsf(*wheel_rb) > max_abs) {
+        max_abs = fabsf(*wheel_rb);
+    }
+
+    if (max_abs > CHASSIS_WHEEL_MAX_REF) {
+        scale = CHASSIS_WHEEL_MAX_REF / max_abs;
+        *wheel_lf *= scale;
+        *wheel_rf *= scale;
+        *wheel_lb *= scale;
+        *wheel_rb *= scale;
+    }
+
+    return scale;
+}
+
 static void OneBoardChassisStop(void)
 {
     DJIMotorStop(one_board_motor_lf);
@@ -566,11 +596,13 @@ void ChassisTask()
     float wheel_rf;
     float wheel_lb;
     float wheel_rb;
+    float wheel_scale;
     static uint8_t wheels_online_last = 2U;
     uint8_t wheels_online;
 
     SubGetMessage(one_board_chassis_sub, &one_board_chassis_cmd);
     wheels_online = OneBoardChassisMotorsOnline();
+    chassis_frame_debug.chassis_wheels_online = wheels_online;
     if (wheels_online != wheels_online_last) {
         LOGINFO("[chassis] wheel CAN feedback %s", wheels_online ? "online" : "offline");
         wheels_online_last = wheels_online;
@@ -580,6 +612,13 @@ void ChassisTask()
         || one_board_chassis_cmd.chassis_mode == CHASSIS_ZERO_FORCE
         || !wheels_online) {
         OneBoardChassisStop();
+        chassis_frame_debug.chassis_body_vx = 0.0f;
+        chassis_frame_debug.chassis_body_vy = 0.0f;
+        chassis_frame_debug.chassis_wheel_lf_ref = 0.0f;
+        chassis_frame_debug.chassis_wheel_rf_ref = 0.0f;
+        chassis_frame_debug.chassis_wheel_lb_ref = 0.0f;
+        chassis_frame_debug.chassis_wheel_rb_ref = 0.0f;
+        chassis_frame_debug.chassis_wheel_scale = 0.0f;
         return;
     }
 
@@ -588,17 +627,33 @@ void ChassisTask()
     DJIMotorEnable(one_board_motor_lb);
     DJIMotorEnable(one_board_motor_rb);
 
-    chassis_vx = one_board_chassis_cmd.vx;
-    chassis_vy = one_board_chassis_cmd.vy;
+    {
+        float cos_theta = arm_cos_f32(one_board_chassis_cmd.offset_angle * DEGREE_2_RAD);
+        float sin_theta = arm_sin_f32(one_board_chassis_cmd.offset_angle * DEGREE_2_RAD);
+
+        chassis_vx = one_board_chassis_cmd.vx * cos_theta
+            - one_board_chassis_cmd.vy * sin_theta;
+        chassis_vy = one_board_chassis_cmd.vx * sin_theta
+            + one_board_chassis_cmd.vy * cos_theta;
+    }
     wheel_lf = -chassis_vx - chassis_vy + one_board_chassis_cmd.wz * LF_CENTER;
     wheel_rf = -chassis_vx + chassis_vy - one_board_chassis_cmd.wz * RF_CENTER;
     wheel_lb = -chassis_vx + chassis_vy + one_board_chassis_cmd.wz * LB_CENTER;
     wheel_rb = -chassis_vx - chassis_vy - one_board_chassis_cmd.wz * RB_CENTER;
+    wheel_scale = OneBoardChassisNormalize(&wheel_lf, &wheel_rf, &wheel_lb, &wheel_rb);
 
-    DJIMotorSetRef(one_board_motor_lf, OneBoardChassisLimit(wheel_lf));
-    DJIMotorSetRef(one_board_motor_rf, OneBoardChassisLimit(wheel_rf));
-    DJIMotorSetRef(one_board_motor_lb, OneBoardChassisLimit(wheel_lb));
-    DJIMotorSetRef(one_board_motor_rb, OneBoardChassisLimit(wheel_rb));
+    chassis_frame_debug.chassis_body_vx = chassis_vx;
+    chassis_frame_debug.chassis_body_vy = chassis_vy;
+    chassis_frame_debug.chassis_wheel_lf_ref = OneBoardChassisLimit(wheel_lf);
+    chassis_frame_debug.chassis_wheel_rf_ref = OneBoardChassisLimit(wheel_rf);
+    chassis_frame_debug.chassis_wheel_lb_ref = OneBoardChassisLimit(wheel_lb);
+    chassis_frame_debug.chassis_wheel_rb_ref = OneBoardChassisLimit(wheel_rb);
+    chassis_frame_debug.chassis_wheel_scale = wheel_scale;
+
+    DJIMotorSetRef(one_board_motor_lf, chassis_frame_debug.chassis_wheel_lf_ref);
+    DJIMotorSetRef(one_board_motor_rf, chassis_frame_debug.chassis_wheel_rf_ref);
+    DJIMotorSetRef(one_board_motor_lb, chassis_frame_debug.chassis_wheel_lb_ref);
+    DJIMotorSetRef(one_board_motor_rb, chassis_frame_debug.chassis_wheel_rb_ref);
     #elif defined(CHASSIS_BOARD)
     SubGetMessage(chassis_sub, &chassis_cmd_recv);
     if (chassis_cmd_recv.chassis_mode == CHASSIS_ZERO_FORCE || 
