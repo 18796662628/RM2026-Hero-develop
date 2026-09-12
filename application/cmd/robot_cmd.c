@@ -35,6 +35,9 @@ static float chassis_rotate_filtered;
 static float chassis_rotate_command;
 static Chassis_Mode_e chassis_mode_last = CHASSIS_ZERO_FORCE;
 
+/* Keep a directly addressable symbol for Ozone; this does not affect control. */
+volatile float yaw_angle_trace = 0.0f;
+
 static uint8_t IsValidSwitchState(uint8_t switch_state)
 {
     return switch_is_up(switch_state)
@@ -315,6 +318,12 @@ void RobotCMDInit(void)
 void RobotCMDTask(void)
 {
     SubGetMessage(gimbal_feed_sub, &gimbal_feedback);
+
+    if (gimbal_feedback.gimbal_imu_data != NULL) {
+        yaw_angle_trace = gimbal_feedback.gimbal_imu_data->YawTotalAngle;
+    } else {
+        yaw_angle_trace = 0.0f;
+    }
 
     if (remote_control[TEMP].rc_update_flag) {
         if (!remote_frame_seen) {
