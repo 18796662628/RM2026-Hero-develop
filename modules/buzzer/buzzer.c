@@ -312,6 +312,10 @@ inline static void string_handle()
  */
 void buzzer_silence(void)
 {
+    if (buzzer == NULL || buzzer->buzzer_pwm == NULL) {
+        return;
+    }
+
     PWMSetDutyRatio(buzzer->buzzer_pwm, 0);
 }
 /**
@@ -342,13 +346,13 @@ void buzzer_one_note(uint16_t Note, float delay)
 __attribute__((noreturn)) void BuzzerTask(void *argument)
 {
     UNUSED(argument);
-    osThreadSuspend(NULL); // 挂起线程
+    osThreadSuspend(osThreadGetId()); // 挂起线程
     for (;;) {
         do {
             string_handle();
             buzzer_silence();
         } while (buzzer->_repeat);
         buzzer->busy = 0;
-        osThreadSuspend(NULL); // 挂起线程
+        osThreadSuspend(osThreadGetId()); // 挂起线程
     }
 }
