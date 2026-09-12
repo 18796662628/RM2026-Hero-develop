@@ -7,6 +7,8 @@
 #include "math.h"
 
 #define ARM_HOLD_TICKS 500U
+#define YAW_ALIGN_ANGLE_DEG \
+    ((float)YAW_CHASSIS_ALIGN_ECD * (360.0f / 8192.0f))
 
 static Publisher_t *gimbal_cmd_pub;
 static Publisher_t *chassis_cmd_pub;
@@ -41,68 +43,47 @@ volatile Chassis_Frame_Debug_s chassis_frame_debug;
 static uint8_t chassis_frame_trace_initialized;
 static float chassis_frame_imu_reference;
 static float chassis_frame_motor_reference;
-static uint8_t chassis_motion_frame_initialized;
-static Chassis_Mode_e chassis_motion_frame_mode = CHASSIS_ZERO_FORCE;
-static float chassis_motion_frame_imu_reference;
-static float chassis_motion_frame_motor_reference;
 
 static uint8_t IsSmallGyroMode(Chassis_Mode_e mode)
 {
     return mode == CHASSIS_ROTATE || mode == CHASSIS_REVERSE_ROTATE;
 }
 
-static void ResetChassisMotionFrame(void)
+static void ResetChassisRotationOffset(void)
 {
-    chassis_motion_frame_initialized = 0U;
-    chassis_motion_frame_mode = CHASSIS_ZERO_FORCE;
-    chassis_motion_frame_imu_reference = 0.0f;
-    chassis_motion_frame_motor_reference = 0.0f;
     chassis_frame_debug.chassis_offset_command_deg = 0.0f;
     chassis_frame_debug.chassis_field_frame_active = 0U;
 }
 
 /*
- * Keep translational commands in the heading that was present when small-gyro
- * mode was entered.  The IMU is on the gimbal, while the Yaw motor angle is
- * measured relative to the chassis, so chassis rotation is IMU - motor.
- * The chassis module applies R(offset_angle); therefore pass the negative
- * chassis angle to obtain the required R(-heading) body-frame conversion.
+ * Original chassis-board method: use the current relative Yaw encoder angle
+ * against the mechanically verified chassis-alignment encoder value.  In
+ * small-gyro mode the gimbal is gyro-stabilized, so this relative angle gives
+ * the rotation needed to express the requested motion in the chassis frame.
  */
-static float GetChassisFrameOffsetAngle(Chassis_Mode_e mode)
+static float GetOriginalChassisOffsetAngle(Chassis_Mode_e mode)
 {
-    float imu_delta;
-    float motor_delta;
-    float chassis_delta;
+    float offset_angle;
 
     if (!IsSmallGyroMode(mode)
         || gimbal_feedback.gimbal_imu_data == NULL
         || !gimbal_feedback.yaw_feedback_online) {
-        ResetChassisMotionFrame();
+        ResetChassisRotationOffset();
         return 0.0f;
     }
 
-    if (!chassis_motion_frame_initialized
-        || chassis_motion_frame_mode != mode) {
-        chassis_motion_frame_imu_reference =
-            gimbal_feedback.gimbal_imu_data->YawTotalAngle;
-        chassis_motion_frame_motor_reference =
-            gimbal_feedback.yaw_motor_total_angle;
-        chassis_motion_frame_mode = mode;
-        chassis_motion_frame_initialized = 1U;
-        chassis_frame_debug.chassis_offset_command_deg = 0.0f;
-        chassis_frame_debug.chassis_field_frame_active = 1U;
-        return 0.0f;
+    offset_angle = -(gimbal_feedback.yaw_motor_single_round_angle
+        - YAW_ALIGN_ANGLE_DEG);
+    while (offset_angle > 180.0f) {
+        offset_angle -= 360.0f;
+    }
+    while (offset_angle < -180.0f) {
+        offset_angle += 360.0f;
     }
 
-    imu_delta = gimbal_feedback.gimbal_imu_data->YawTotalAngle
-        - chassis_motion_frame_imu_reference;
-    motor_delta = gimbal_feedback.yaw_motor_total_angle
-        - chassis_motion_frame_motor_reference;
-    chassis_delta = imu_delta - motor_delta;
-
-    chassis_frame_debug.chassis_offset_command_deg = -chassis_delta;
+    chassis_frame_debug.chassis_offset_command_deg = offset_angle;
     chassis_frame_debug.chassis_field_frame_active = 1U;
-    return -chassis_delta;
+    return offset_angle;
 }
 
 static void UpdateChassisFrameDebug(void)
@@ -293,7 +274,7 @@ static void BuildArmedChassisCommand(void)
         chassis_cmd.vy = 0.0f;
         rotate_raw = 0.0f;
     }
-    chassis_cmd.offset_angle = GetChassisFrameOffsetAngle(chassis_cmd.chassis_mode);
+    chassis_cmd.offset_angle = GetOriginalChassisOffsetAngle(chassis_cmd.chassis_mode);
     chassis_frame_debug.chassis_command_vx = chassis_cmd.vx;
     chassis_frame_debug.chassis_command_vy = chassis_cmd.vy;
     chassis_frame_debug.chassis_command_mode = (uint8_t)chassis_cmd.chassis_mode;
@@ -487,7 +468,7 @@ void RobotCMDTask(void)
         chassis_rotate_filtered = 0.0f;
         chassis_rotate_command = 0.0f;
         chassis_mode_last = CHASSIS_ZERO_FORCE;
-        ResetChassisMotionFrame();
+        ResetChassisRotationOffset();
     }
 
     PubPushMessage(gimbal_cmd_pub, &gimbal_cmd);
