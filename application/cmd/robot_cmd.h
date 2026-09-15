@@ -41,6 +41,10 @@ typedef struct
     float chassis_wheel_rf_ref;
     float chassis_wheel_lb_ref;
     float chassis_wheel_rb_ref;
+    float chassis_wheel_lf_actual;
+    float chassis_wheel_rf_actual;
+    float chassis_wheel_lb_actual;
+    float chassis_wheel_rb_actual;
     float chassis_wheel_scale;
     float chassis_command_wz;
     uint8_t chassis_wheels_online;

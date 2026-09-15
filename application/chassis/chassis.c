@@ -409,7 +409,7 @@ void ChassisInit()
         },
         .controller_param_init_config = {
             .speed_PID = {
-                .Kp = 1.0f,
+                .Kp = 1.6f,
                 .Ki = 0.0f,
                 .Kd = 0.0f,
                 .IntegralLimit = 3000.0f,
@@ -603,6 +603,15 @@ void ChassisTask()
     SubGetMessage(one_board_chassis_sub, &one_board_chassis_cmd);
     wheels_online = OneBoardChassisMotorsOnline();
     chassis_frame_debug.chassis_wheels_online = wheels_online;
+    /* Normalize feedback signs so actual speed can be compared to wheel ref. */
+    chassis_frame_debug.chassis_wheel_lf_actual =
+        -one_board_motor_lf->measure.speed_aps;
+    chassis_frame_debug.chassis_wheel_rf_actual =
+        one_board_motor_rf->measure.speed_aps;
+    chassis_frame_debug.chassis_wheel_lb_actual =
+        -one_board_motor_lb->measure.speed_aps;
+    chassis_frame_debug.chassis_wheel_rb_actual =
+        one_board_motor_rb->measure.speed_aps;
     if (wheels_online != wheels_online_last) {
         LOGINFO("[chassis] wheel CAN feedback %s", wheels_online ? "online" : "offline");
         wheels_online_last = wheels_online;

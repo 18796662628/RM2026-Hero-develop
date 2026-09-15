@@ -31,6 +31,12 @@
 #define PITCH_SOFT_LIMIT_DOWN_FROM_ARM_DEG 12.0f
 #define PITCH_SOFT_LIMIT_UP_FROM_ARM_DEG   40.0f
 
+/* Conservative gravity feedforward for the Pitch current command. */
+#define PITCH_GRAVITY_FF_GAIN             -180.0f
+#define PITCH_GRAVITY_FF_BIAS               0.0f
+#define PITCH_GRAVITY_FF_ZERO_DEG           0.0f
+#define PITCH_GRAVITY_FF_MAX_OUT          250.0f
+
 #define CHASSIS_RC_DEADBAND               15.0f
 #define CHASSIS_RC_MAX_SPEED              6000.0f
 #define CHASSIS_RC_MAX_ROTATE             800.0f
