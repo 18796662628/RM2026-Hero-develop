@@ -49,6 +49,16 @@ static uint8_t IsSmallGyroMode(Chassis_Mode_e mode)
     return mode == CHASSIS_ROTATE || mode == CHASSIS_REVERSE_ROTATE;
 }
 
+static uint8_t IsChassisFollowMode(Chassis_Mode_e mode)
+{
+    return mode == CHASSIS_FOLLOW_GIMBAL_YAW;
+}
+
+static uint8_t NeedsYawFeedback(Chassis_Mode_e mode)
+{
+    return IsSmallGyroMode(mode) || IsChassisFollowMode(mode);
+}
+
 static void ResetChassisRotationOffset(void)
 {
     chassis_frame_debug.chassis_offset_command_deg = 0.0f;
@@ -65,7 +75,7 @@ static float GetOriginalChassisOffsetAngle(Chassis_Mode_e mode)
 {
     float offset_angle;
 
-    if (!IsSmallGyroMode(mode)
+    if (!NeedsYawFeedback(mode)
         || gimbal_feedback.gimbal_imu_data == NULL
         || !gimbal_feedback.yaw_feedback_online) {
         ResetChassisRotationOffset();
@@ -210,6 +220,8 @@ static const char *ChassisModeName(Chassis_Mode_e mode)
             return "manual omni";
         case CHASSIS_REVERSE_ROTATE:
             return "auto rotate reverse";
+        case CHASSIS_FOLLOW_GIMBAL_YAW:
+            return "follow gimbal yaw";
         default:
             return "zero force";
     }
@@ -248,7 +260,7 @@ static float ShapeChassisRotateCommand(float rotate_raw)
 static void BuildArmedChassisCommand(void)
 {
     float rotate_raw;
-    uint8_t small_gyro_mode;
+    uint8_t yaw_referenced_mode;
 
     chassis_cmd.vx = MapChassisStick(remote_control[TEMP].rc.rocker_r1,
         CHASSIS_RC_MAX_SPEED);
@@ -262,14 +274,17 @@ static void BuildArmedChassisCommand(void)
     } else if (switch_is_down(remote_control[TEMP].rc.switch_right)) {
         chassis_cmd.chassis_mode = CHASSIS_REVERSE_ROTATE;
         rotate_raw = -CHASSIS_AUTO_ROTATE_SPEED;
+    } else if (switch_is_up(remote_control[TEMP].rc.switch_left)) {
+        chassis_cmd.chassis_mode = CHASSIS_FOLLOW_GIMBAL_YAW;
+        rotate_raw = 0.0f;
     } else {
         chassis_cmd.chassis_mode = CHASSIS_NO_FOLLOW;
         rotate_raw = MapChassisStick(remote_control[TEMP].rc.dial,
             CHASSIS_RC_MAX_ROTATE);
     }
 
-    small_gyro_mode = IsSmallGyroMode(chassis_cmd.chassis_mode);
-    if (small_gyro_mode && !gimbal_feedback.yaw_feedback_online) {
+    yaw_referenced_mode = NeedsYawFeedback(chassis_cmd.chassis_mode);
+    if (yaw_referenced_mode && !gimbal_feedback.yaw_feedback_online) {
         chassis_cmd.vx = 0.0f;
         chassis_cmd.vy = 0.0f;
         rotate_raw = 0.0f;
@@ -278,7 +293,13 @@ static void BuildArmedChassisCommand(void)
     chassis_frame_debug.chassis_command_vx = chassis_cmd.vx;
     chassis_frame_debug.chassis_command_vy = chassis_cmd.vy;
     chassis_frame_debug.chassis_command_mode = (uint8_t)chassis_cmd.chassis_mode;
-    if (small_gyro_mode && !gimbal_feedback.yaw_feedback_online) {
+    if (IsChassisFollowMode(chassis_cmd.chassis_mode)) {
+        /* Follow PID is owned by ChassisTask, matching the original design. */
+        chassis_rotate_initialized = 0U;
+        chassis_rotate_filtered = 0.0f;
+        chassis_rotate_command = 0.0f;
+        chassis_cmd.wz = 0.0f;
+    } else if (yaw_referenced_mode && !gimbal_feedback.yaw_feedback_online) {
         /* Do not let a stale filtered command keep the chassis spinning. */
         chassis_rotate_initialized = 0U;
         chassis_rotate_filtered = 0.0f;

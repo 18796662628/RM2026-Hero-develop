@@ -348,6 +348,7 @@ static DJIMotorInstance *one_board_motor_lf;
 static DJIMotorInstance *one_board_motor_rf;
 static DJIMotorInstance *one_board_motor_lb;
 static DJIMotorInstance *one_board_motor_rb;
+static PIDInstance *one_board_chassis_follow_pid;
 
 static float OneBoardChassisLimit(float value)
 {
@@ -398,6 +399,28 @@ static uint8_t OneBoardChassisMotorsOnline(void)
         && DaemonIsOnline(one_board_motor_lb->daemon)
         && DaemonIsOnline(one_board_motor_rb->daemon);
 }
+
+static void ResetOneBoardFollowPID(void)
+{
+    if (one_board_chassis_follow_pid == NULL) {
+        return;
+    }
+
+    one_board_chassis_follow_pid->Measure = 0.0f;
+    one_board_chassis_follow_pid->Last_Measure = 0.0f;
+    one_board_chassis_follow_pid->Err = 0.0f;
+    one_board_chassis_follow_pid->Last_Err = 0.0f;
+    one_board_chassis_follow_pid->Last_ITerm = 0.0f;
+    one_board_chassis_follow_pid->Pout = 0.0f;
+    one_board_chassis_follow_pid->Iout = 0.0f;
+    one_board_chassis_follow_pid->Dout = 0.0f;
+    one_board_chassis_follow_pid->ITerm = 0.0f;
+    one_board_chassis_follow_pid->Output = 0.0f;
+    one_board_chassis_follow_pid->Last_Output = 0.0f;
+    one_board_chassis_follow_pid->Last_Dout = 0.0f;
+    one_board_chassis_follow_pid->Ref = 0.0f;
+    DWT_GetDeltaT(&one_board_chassis_follow_pid->DWT_CNT);
+}
 #endif
 
 void ChassisInit()
@@ -439,6 +462,18 @@ void ChassisInit()
     chassis_motor_config.can_init_config.tx_id = 4U;
     chassis_motor_config.controller_setting_init_config.motor_reverse_flag = MOTOR_DIRECTION_REVERSE;
     one_board_motor_lb = DJIMotorInit(&chassis_motor_config);
+
+    PID_Init_Config_s chassis_follow_pid_config = {
+        .Kp = CHASSIS_FOLLOW_ANGLE_KP,
+        .Ki = 0.0f,
+        .Kd = CHASSIS_FOLLOW_ANGLE_KD,
+        .DeadBand = CHASSIS_FOLLOW_DEADBAND_DEG,
+        .IntegralLimit = 3000.0f,
+        .MaxOut = CHASSIS_FOLLOW_MAX_ROTATE,
+        .Improve = PID_Trapezoid_Intergral | PID_Integral_Limit
+            | PID_Derivative_On_Measurement,
+    };
+    one_board_chassis_follow_pid = PIDRegister(&chassis_follow_pid_config);
 
     one_board_chassis_sub = SubRegister("chassis_cmd", sizeof(Chassis_Ctrl_Cmd_s));
     LOGINFO("[chassis] four M3508 motors registered on CAN1");
@@ -621,6 +656,7 @@ void ChassisTask()
         || one_board_chassis_cmd.chassis_mode == CHASSIS_ZERO_FORCE
         || !wheels_online) {
         OneBoardChassisStop();
+        ResetOneBoardFollowPID();
         chassis_frame_debug.chassis_body_vx = 0.0f;
         chassis_frame_debug.chassis_body_vy = 0.0f;
         chassis_frame_debug.chassis_wheel_lf_ref = 0.0f;
@@ -635,6 +671,22 @@ void ChassisTask()
     DJIMotorEnable(one_board_motor_rf);
     DJIMotorEnable(one_board_motor_lb);
     DJIMotorEnable(one_board_motor_rb);
+
+    if (one_board_chassis_cmd.chassis_mode == CHASSIS_FOLLOW_GIMBAL_YAW) {
+        float follow_error = one_board_chassis_cmd.offset_angle;
+
+        /* Mecanum chassis is front/back symmetric: follow the nearest heading. */
+        if (follow_error > 90.0f) {
+            follow_error -= 180.0f;
+        } else if (follow_error < -90.0f) {
+            follow_error += 180.0f;
+        }
+        one_board_chassis_cmd.wz = PIDCalculate(
+            one_board_chassis_follow_pid, follow_error, 0.0f);
+        chassis_frame_debug.chassis_command_wz = one_board_chassis_cmd.wz;
+    } else {
+        ResetOneBoardFollowPID();
+    }
 
     {
         float cos_theta = arm_cos_f32(one_board_chassis_cmd.offset_angle * DEGREE_2_RAD);

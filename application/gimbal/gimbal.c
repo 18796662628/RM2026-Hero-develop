@@ -19,29 +19,6 @@ volatile Pitch_Feedforward_Debug_s pitch_ff_debug;
 #if defined(ONE_BOARD)
 static DJIMotorInstance *yaw_motor;
 static DJIMotorInstance *pitch_motor;
-static float pitch_current_feedforward;
-
-static void UpdatePitchGravityFeedforward(uint8_t pitch_online, uint8_t pitch_active)
-{
-    float angle_rad;
-    float feedforward;
-
-    if (!pitch_online || !pitch_active) {
-        pitch_current_feedforward = 0.0f;
-        return;
-    }
-
-    angle_rad = (gimbal_imu_data->Pitch - PITCH_GRAVITY_FF_ZERO_DEG)
-        * DEGREE_2_RAD;
-    feedforward = PITCH_GRAVITY_FF_BIAS
-        + PITCH_GRAVITY_FF_GAIN * cosf(angle_rad);
-    if (feedforward > PITCH_GRAVITY_FF_MAX_OUT) {
-        feedforward = PITCH_GRAVITY_FF_MAX_OUT;
-    } else if (feedforward < -PITCH_GRAVITY_FF_MAX_OUT) {
-        feedforward = -PITCH_GRAVITY_FF_MAX_OUT;
-    }
-    pitch_current_feedforward = feedforward;
-}
 
 static void ResetPIDState(PIDInstance *pid, float measure, float ref)
 {
@@ -146,7 +123,7 @@ void GimbalInit(void)
         .controller_param_init_config = {
             .angle_PID = {
                 .Kp = PITCH_ANGLE_PID_KP,
-                .Ki = 0.05f,
+                .Ki = PITCH_ANGLE_PID_KI,
                 .Kd = 0.00001f,
                 .DeadBand = 0.0f,
                 .Improve = PID_Trapezoid_Intergral | PID_Integral_Limit
@@ -167,7 +144,6 @@ void GimbalInit(void)
             },
             .other_angle_feedback_ptr = &gimbal_imu_data->Pitch,
             .other_speed_feedback_ptr = &gimbal_imu_data->Gyro[INS_PITCH_ADDRESS_OFFSET],
-            .current_feedforward_ptr = &pitch_current_feedforward,
             .pid_struct_type = Cascade_PID,
         },
         .controller_setting_init_config = {
@@ -176,7 +152,6 @@ void GimbalInit(void)
             .outer_loop_type = ANGLE_LOOP,
             .close_loop_type = ANGLE_LOOP | SPEED_LOOP,
             .motor_reverse_flag = MOTOR_DIRECTION_NORMAL,
-            .feedforward_flag = CURRENT_FEEDFORWARD,
         },
         .motor_type = GM6020,
     };
@@ -247,8 +222,6 @@ void GimbalTask(void)
         }
     }
 
-    UpdatePitchGravityFeedforward(pitch_online, pitch_active);
-
     gimbal_feedback_data.yaw_ecd = yaw_motor->measure.ecd;
     gimbal_feedback_data.yaw_motor_single_round_angle = yaw_motor->measure.angle_single_round;
     gimbal_feedback_data.yaw_motor_total_angle = yaw_motor->measure.total_angle;
@@ -263,7 +236,7 @@ void GimbalTask(void)
     pitch_ff_debug.angle_pid_iout = pitch_motor->motor_controller.angle_PID.Iout;
     pitch_ff_debug.speed_pid_iout = pitch_motor->motor_controller.speed_PID.Iout;
     pitch_ff_debug.speed_pid_output = pitch_motor->motor_controller.speed_PID.Output;
-    pitch_ff_debug.gravity_feedforward = pitch_current_feedforward;
+    pitch_ff_debug.gravity_feedforward = 0.0f;
     pitch_ff_debug.motor_current = pitch_motor->measure.real_current;
     pitch_ff_debug.feedback_online = pitch_online;
     pitch_ff_debug.control_active = pitch_active;
