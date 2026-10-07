@@ -6,6 +6,7 @@
 
 uint8_t idm                                               = 0;
 static DMMotorInstance *dmmotor_instance[DM_MOTOR_MX_CNT] = {NULL};
+#define DM_CONTROL_SEND_DIVIDER 5U
 void DMMotorEnableMode(DMMotorInstance *motor);
 void DMMotorErrorDetection(DMMotorInstance *motor);
 void mit_ctrl(DMMotorInstance *motor);
@@ -92,6 +93,9 @@ static void DMMotorLostCallback(void *motor_ptr)
         DMMotorInstance *motor = (DMMotorInstance *)motor_ptr;
         motor->measure.total_round = 0;
         motor->ctrl.pos_set = motor->measure.pos;
+        motor->stop_flag = MOTOR_STOP;
+        motor->is_enabled = 0U;
+        motor->control_ready = 0U;
     }
 }
 
@@ -118,20 +122,19 @@ DMMotorInstance *DMMotorInit(Motor_Init_Config_s *config)
 
     motor->motor_can_instance          = CANRegister(&config->can_init_config);
 
-  DMMotorEnableMode(motor); // 使能电机模式,发送使能指令
-  for (size_t i = 0; i < 10; i++)
-    {
-        CANTransmit(motor->motor_can_instance, 2);
-    }
-          motor->ctrl.vel_set = 0;
-          motor->ctrl.tor_set = 0 ; //   默认关闭，避免出问题
+    /* Safety: registration must not energize a mechanically loaded motor. */
+    motor->stop_flag = MOTOR_STOP;
+    motor->is_enabled = 0U;
+    motor->control_ready = 0U;
+    motor->ctrl.vel_set = 0.0f;
+    motor->ctrl.tor_set = 0.0f;
     
     dmmotor_instance[idm++] = motor;
 
     Daemon_Init_Config_s daemon_config = {
         .callback     = DMMotorLostCallback,
         .owner_id     = motor,
-        .reload_count = 2, // 20ms
+        .reload_count = 20, // DaemonTask runs every 1 ms: declare loss after 20 ms
     };
     motor->daemon = DaemonRegister(&daemon_config);
 
@@ -166,6 +169,7 @@ void DMMotorSetRef(DMMotorInstance *motor, float ref)
 }
 void DMMotorControl()
 {
+    static uint8_t send_divider;
     float pid_measure, pid_ref;
 
     DMMotorInstance *motor;
@@ -173,8 +177,24 @@ void DMMotorControl()
     Motor_Control_Setting_s *setting;
     Motor_Controller_s *motor_controller;
 
+    /*
+     * On the one-board robot this shares CAN1 with four drive motors and
+     * the Yaw. A 200 Hz position refresh is sufficient for the DM4310's
+     * internal position controller and keeps the bus below saturation.
+     * Explicit enable/disable messages remain immediate.
+     */
+    send_divider++;
+    if (send_divider < DM_CONTROL_SEND_DIVIDER) {
+        return;
+    }
+    send_divider = 0U;
+
     for (size_t i = 0; i < idm; ++i) {
         motor   = dmmotor_instance[i];
+        if (motor->stop_flag == MOTOR_STOP || !motor->is_enabled
+            || !motor->control_ready) {
+            continue;
+        }
         measure = &motor->measure;
         setting = &motor->motor_settings;
         motor_controller = &motor->motor_controller;
@@ -209,14 +229,6 @@ void DMMotorControl()
        
 
        
-
-         if (motor->stop_flag == MOTOR_STOP) { 
-            motor->ctrl.pos_set = 0 ;
-            motor->ctrl.vel_set = 0 ;
-            motor->ctrl.tor_set = 0 ;
-            motor->ctrl.kp_set = 0 ;
-            motor->ctrl.kd_set = 0 ;
-         }
 
         // 发送
         // memset(motor->motor_can_instance->tx_buff, 0, sizeof(motor->motor_can_instance->tx_buff));
@@ -306,6 +318,10 @@ uint8_t DMMotorIsOnline(DMMotorInstance *motor)
 // 异常检测
 void DMMotorErrorDetection(DMMotorInstance *motor)
 {
+    if (motor->stop_flag == MOTOR_STOP) {
+        return;
+    }
+
     switch(motor->measure.state)
     {
         case 1:
@@ -331,6 +347,7 @@ void DMMotorErrorDetection(DMMotorInstance *motor)
     {
         DMMotorEnableMode(motor);
         CANTransmit(motor->motor_can_instance, 1);
+        motor->is_enabled = 1U;
         motor->motor_error.disable_counter = 0;
     }
 
@@ -343,6 +360,8 @@ void DMMotorErrorDetection(DMMotorInstance *motor)
 
         DMMotorDisableMode(motor);
         CANTransmit(motor->motor_can_instance, 1);
+        motor->is_enabled = 0U;
+        motor->control_ready = 0U;
 
         motor->motor_error.error_counter = 0;
     }
@@ -363,11 +382,24 @@ void DMMotorErrorDetection(DMMotorInstance *motor)
 
 void DMMotorStop(DMMotorInstance *motor)
 {
-     motor->stop_flag = MOTOR_STOP;
+    motor->stop_flag = MOTOR_STOP;
+    motor->control_ready = 0U;
+    motor->ctrl.vel_set = 0.0f;
+    motor->ctrl.tor_set = 0.0f;
+    if (motor->is_enabled) {
+        DMMotorDisableMode(motor);
+        CANTransmit(motor->motor_can_instance, 1);
+        motor->is_enabled = 0U;
+    }
 }
 
 void DMMotorEnable1(DMMotorInstance *motor)
 {
+    if (!motor->is_enabled) {
+        DMMotorEnableMode(motor);
+        CANTransmit(motor->motor_can_instance, 1);
+        motor->is_enabled = 1U;
+    }
     motor->stop_flag = MOTOR_ENABLED;
 }
 
@@ -379,4 +411,5 @@ void DMMotorSetPos(DMMotorInstance *motor, float pos, float vel)
 {
     motor->ctrl.pos_set = pos;
     motor->ctrl.vel_set = vel;
+    motor->control_ready = 1U;
 }

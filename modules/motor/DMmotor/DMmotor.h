@@ -70,6 +70,8 @@ typedef struct
    	Motor_Working_Type_e stop_flag; // 启停标志
     DaemonInstance *daemon;
 	Motor_Error_t motor_error;
+    uint8_t is_enabled;
+    uint8_t control_ready;
     uint32_t feed_cnt;
     float dt;
 } DMMotorInstance;
@@ -84,6 +86,7 @@ typedef struct
  */
 DMMotorInstance *DMMotorInit(Motor_Init_Config_s *config);
 void DMMotorControl();
+uint8_t DMMotorIsOnline(DMMotorInstance *motor);
 void DMMotorSetRef(DMMotorInstance *motor, float ref);
 void DMMotorEnableMode(DMMotorInstance *motor);
 void DMMotorSetTorque(DMMotorInstance *motor, float torque); // 设置力矩

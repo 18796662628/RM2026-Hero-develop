@@ -15,6 +15,7 @@
 #include "chassis.h"
 #include "gimbal.h"
 #include "robot_cmd.h"
+#include "shoot.h"
 
 void RobotInit()
 {
@@ -24,6 +25,7 @@ void RobotInit()
     RobotCMDInit();
     GimbalInit();
     ChassisInit();
+    ShootInit();
 
     __enable_irq();
 }
@@ -33,4 +35,5 @@ void RobotTask()
     RobotCMDTask();
     GimbalTask();
     ChassisTask();
+    ShootTask();
 }

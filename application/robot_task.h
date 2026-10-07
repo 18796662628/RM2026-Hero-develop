@@ -15,6 +15,7 @@
 #include "robot_cmd.h"
 #include "gimbal.h"
 #include "chassis.h"
+#include "shoot.h"
 #include "motor_task.h"
 
 //! 任务直接在cubeMX中配置,不再使用这种方式
@@ -40,6 +41,7 @@ __attribute__((noreturn)) void _RobotCMDTask(void *argument)
     LOGINFO("[freeRTOS] RobotCMD Task Start");
     for (;;) {
         RobotCMDTask();
+        ShootTask();
         cmd_dt = 1000 * DWT_GetDeltaT(&cmd_time);
         if (cmd_dt > 1.2f)
             LOGERROR("[freeRTOS] Robot Task is being DELAY! dt = [%f]ms", &cmd_dt);
