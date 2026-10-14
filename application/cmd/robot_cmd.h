@@ -1,18 +1,7 @@
-#ifndef ROBOT_CMD_H
-#define ROBOT_CMD_H
+#ifndef SENTINEL_ROBOT_CMD_H
+#define SENTINEL_ROBOT_CMD_H
 
+void RobotCMDInit(void);
+void RobotCMDTask(void);
 
-/**
- * @brief 机器人核心控制任务初始化,会被RobotInit()调用
- * 
- */
-void RobotCMDInit();
-
-/**
- * @brief 机器人核心控制任务,200Hz频率运行(必须高于视觉发送频率)
- * 
- */
-void RobotCMDTask();
-extern  float cym1;
-
-#endif // !ROBOT_CMD_H
+#endif

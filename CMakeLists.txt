@@ -83,6 +83,10 @@ file(GLOB_RECURSE SOURCES
     "application/*.c"
 )
 
+# Referee/UI code still targets the removed Hero application interfaces.
+# It is deliberately deferred until Sentinel power management is integrated.
+list(FILTER SOURCES EXCLUDE REGEX ".*/modules/referee/.*\\.c$")
+
 # 汇编文件路径
 # ENABLE_LANGUAGE(ASM)
 set(ASM_SOURCES

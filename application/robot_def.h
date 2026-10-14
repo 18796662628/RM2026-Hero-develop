@@ -3,8 +3,8 @@
 #include "stdint.h"
 #include "ins_task.h"
 
-#define CHASSIS_BOARD //底盘板
-//#define GIMBAL_BOARD  //云台板
+#define CHASSIS_BOARD // Build the chassis-board image. Change this when building the gimbal board.
+//#define GIMBAL_BOARD
 
 #define YAW_K                  0.00025f
 #define PITCH_K                0.00025f
@@ -40,6 +40,32 @@ typedef enum {
     CHASSIS_FOLLOW_GIMBAL_YAW, // 跟随模式，底盘叠加角度环控制
     CHASSIS_REVERSE_ROTATE,    // 反方向小陀螺
 } Chassis_Mode_e;
+
+/*
+ * Fixed-size command carried from the gimbal board to the chassis board.
+ * A missing or invalid packet is interpreted as an emergency stop.
+ */
+#define SENTINEL_CHASSIS_PACKET_MAGIC 0x53A6U
+
+typedef struct __attribute__((packed))
+{
+    uint16_t magic;
+    uint8_t sequence;
+    uint8_t emergency_stop;
+    Chassis_Mode_e chassis_mode;
+    float vx;
+    float vy;
+    float wz;
+} Sentinel_Chassis_Packet_s;
+
+typedef struct
+{
+    uint8_t emergency_stop;
+    Chassis_Mode_e chassis_mode;
+    float vx;
+    float vy;
+    float wz;
+} Sentinel_Chassis_Cmd_s;
 
 typedef enum {
     GIMBAL_ZERO_FORCE = 0, // 电流零输入
