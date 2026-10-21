@@ -1,6 +1,58 @@
-# Alliance-EC 2024 Omni-Infantry
+# RoboMaster 2026 Sentinel
 
-南京理工大学Alliance战队2024全向轮步兵下位机代码。
+双板哨兵机器人下位机项目。当前开发阶段只包含底盘安全链路：
+
+- 云台板通过既有板间串口链路向底盘板发布命令；
+- 板间通信离线、无效包或急停命令时，底盘板停止全部八个轮模块电机；
+- 底盘板已按实车 CAN 分配注册四个 M3508 行走电机和四个 GM6020 转向电机；
+- 四舵轮零位标定与运动学尚未实现，当前任何非急停命令也只输出零参考值。
+
+云台板的底盘状态机已固定为：
+
+| 条件 | 底盘命令 |
+| --- | --- |
+| 遥控离线，或 SA 下 | 急停、零力 |
+| SA 上、SD 下、SC 下 | 不跟随云台 |
+| SA 上、SD 下、SC 中 | 跟随云台 |
+| SA 上、SD 下、SC 上 | 小陀螺 |
+| SA 上、SD 上 | 当前保持急停，等待导航/视觉控制源接入 |
+
+J2 映射为 `vx`，J1 映射为 `vy`。W.BUS 解码器完成后只需调用
+`SentinelRemotePublish()` 提供归一化的通道数据，状态机和板间通信不需要修改。
+
+四舵轮运动学核心位于 `application/chassis/swerve_kinematics.*`，已实现
+车体速度到四个轮组的舵角/轮速解算与 180 度等效转向优化。接入电机前必须实测：
+
+1. 四个轮组回转中心相对底盘中心的 `(x, y)` 坐标；
+2. 每个 GM6020 在“轮子朝车头正前”时的编码器零位；
+3. 四个 GM6020 与四个 M3508 的正方向；
+4. 轮径与 M3508 到轮轴的总传动比。
+
+### First Chassis Bring-Up
+
+The first moving firmware is deliberately restricted to a low-speed manual
+test. Its chassis coordinate frame uses the CAN2 wheel-pair side as `+x`; `+y`
+points left while facing that side. The square wheel-module spacing is `0.342 m`,
+wheel radius is `0.050 m`, and the M3508 output-shaft-to-wheel ratio is `268/17`.
+
+Before powering the chassis board, manually point all four wheel rolling
+directions toward the CAN2 side. Keep `SA` down while booting. After all four
+GM6020 feedback frames arrive, the program captures the current positions as
+the four steering zero points and keeps every motor stopped. The first enabled
+mode is only `SA up + SD down + SC down`; J2 commands low-speed `vx`, J1 commands
+low-speed `vy`. Follow-gimbal and spin modes remain stopped in this build.
+
+Test in this order:
+
+1. Power only the receiver and both C boards; verify the RF206S is solid green.
+2. Confirm both board images run and the chassis remains stopped with `SA` down.
+3. Confirm the RTT log reports `steering zero captured` after CAN feedback is present.
+4. Rack the chassis up, select the manual non-follow mode, and test one small J2 input.
+5. Return `SA` down immediately if any wheel turns or drives in an unexpected direction.
+6. Record and correct each `*_STEER_DIRECTION` and `*_DRIVE_DIRECTION` entry in
+   `application/chassis/sentinel_chassis_config.h` before testing on the floor.
+
+> `modules/` 与 `bsp/` 保留自原框架；英雄专属 gimbal、shoot、UI 和测试应用已从当前项目移除。裁判系统模块将在功率控制阶段重新接入。
 
 <img src=".assets/Alliance-badge.png" alt="Alliance-badge" style="zoom: 25%;" />
 

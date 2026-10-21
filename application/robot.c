@@ -5,6 +5,8 @@
 #include "chassis.h"
 #include "robot_cmd.h"
 #include "robot_def.h"
+#include "sentinel_remote.h"
+#include "usart.h"
 
 void RobotInit(void)
 {
@@ -12,6 +14,10 @@ void RobotInit(void)
 
     BSPInit();
     RobotCMDInit();
+
+#ifdef GIMBAL_BOARD
+    SentinelRemoteInit(&huart3);
+#endif
 
 #ifdef CHASSIS_BOARD
     ChassisInit();

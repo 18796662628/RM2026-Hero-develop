@@ -23,6 +23,12 @@
 #include "main.h"
 #include "cmsis_os.h"
 #include "robot_def.h"
+#include "robot_cmd.h"
+#include "motor_task.h"
+#include "daemon.h"
+#ifdef CHASSIS_BOARD
+#include "chassis.h"
+#endif
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* USER CODE END Includes */
@@ -195,12 +201,14 @@ __weak void StartINSTASK(void *argument)
 * @retval None
 */
 /* USER CODE END Header__RobotCMDTask */
-__weak void _RobotCMDTask(void *argument)
+void _RobotCMDTask(void *argument)
 {
   /* USER CODE BEGIN _RobotCMDTask */
+  UNUSED(argument);
   /* Infinite loop */
   for(;;)
   {
+    RobotCMDTask();
     osDelay(1);
   }
   /* USER CODE END _RobotCMDTask */
@@ -231,12 +239,16 @@ __weak void _GimbalTask(void *argument)
 * @retval None
 */
 /* USER CODE END Header__ChassisTask */
-__weak void _ChassisTask(void *argument)
+void _ChassisTask(void *argument)
 {
   /* USER CODE BEGIN _ChassisTask */
+  UNUSED(argument);
   /* Infinite loop */
   for(;;)
   {
+#ifdef CHASSIS_BOARD
+    ChassisTask();
+#endif
     osDelay(1);
   }
   /* USER CODE END _ChassisTask */
@@ -267,12 +279,14 @@ __weak void _ShootTask(void *argument)
 * @retval None
 */
 /* USER CODE END Header_motorControlTask */
-__weak void motorControlTask(void *argument)
+void motorControlTask(void *argument)
 {
   /* USER CODE BEGIN motorControlTask */
+  UNUSED(argument);
   /* Infinite loop */
   for(;;)
   {
+    MotorControlTask();
     osDelay(1);
   }
   /* USER CODE END motorControlTask */
@@ -303,12 +317,14 @@ __weak void _UITask(void *argument)
 * @retval None
 */
 /* USER CODE END Header__DaemonTask */
-__weak void _DaemonTask(void *argument)
+void _DaemonTask(void *argument)
 {
   /* USER CODE BEGIN _DaemonTask */
+  UNUSED(argument);
   /* Infinite loop */
   for(;;)
   {
+    DaemonTask();
     osDelay(1);
   }
   /* USER CODE END _DaemonTask */

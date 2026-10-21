@@ -14,7 +14,9 @@ float speed =-1.0;
 float kp_t=1.0;
 float tff=-10.0;
 Power_Data_s power_data; // 电机功率数据
+#ifndef M_PI
 #define M_PI 3.14159265358979323846f // 定义圆周率常量,用于角度转弧度的转换
+#endif
 /**
  * @brief 由于DJI电机发送以四个一组的形式进行,故对其进行特殊处理,用6个(2can*3group)can_instance专门负责发送
  *        该变量将在 DJIMotorControl() 中使用,分组在 MotorSenderGrouping()中进行
@@ -22,7 +24,7 @@ Power_Data_s power_data; // 电机功率数据
  * @note  因为只用于发送,所以不需要在bsp_can中注册
  *
  * C610(m2006)/C620(m3508):0x1ff,0x200;
- * GM6020:0x1fe,0x2fe
+ * GM6020:0x1ff (IDs 1-4)
  * 反馈(rx_id): GM6020: 0x204+id ; C610/C620: 0x200+id
  * can1: [0]:0x1FF,[1]:0x200,[2]:0x2FF
  * can2: [3]:0x1FF,[4]:0x200,[5]:0x2FF
@@ -51,10 +53,10 @@ static CANInstance sender_assignment[6] = {
 static CANInstance sender_assignment[6] = {
     [0] = {.can_handle = &hcan1, .txconf.StdId = 0x1FF, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [1] = {.can_handle = &hcan1, .txconf.StdId = 0x200, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
-    [2] = {.can_handle = &hcan1, .txconf.StdId = 0x2fe, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
+    [2] = {.can_handle = &hcan1, .txconf.StdId = 0x2FE, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [3] = {.can_handle = &hcan2, .txconf.StdId = 0x1ff, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
     [4] = {.can_handle = &hcan2, .txconf.StdId = 0x200, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
-    [5] = {.can_handle = &hcan2, .txconf.StdId = 0x1fe, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
+    [5] = {.can_handle = &hcan2, .txconf.StdId = 0x1FE, .txconf.IDE = CAN_ID_STD, .txconf.RTR = CAN_RTR_DATA, .txconf.DLC = 0x08, .tx_buff = {0}},
   };                                                                          
 #endif
 
@@ -108,10 +110,10 @@ static void MotorSenderGrouping(DJIMotorInstance *motor, CAN_Init_Config_s *conf
         case GM6020:
             if (motor_id < 4) {
                 motor_send_num = motor_id;
-                motor_grouping = 5;
+                motor_grouping = config->can_handle == &hcan1 ? 2 : 5;
             } else {
-                motor_send_num = motor_id - 4;
-                motor_grouping = 2;
+                while (1)
+                    LOGERROR("[dji_motor] GM6020 IDs 5-8 are unsupported on this board image.");
             }
 
             config->rx_id                      = 0x204 + motor_id + 1; // 把ID+1,进行分组设置
@@ -344,33 +346,8 @@ void DJIMotorControl()
         num                                           = motor->message_num;
         sender_assignment[group].tx_buff[2 * num]     = (uint8_t)(set >> 8);     // 低八位
         sender_assignment[group].tx_buff[2 * num + 1] = (uint8_t)(set & 0x00ff); // 高八位
-#if defined(ONE_BOARD) || defined(CHASSIS_BOARD)
-        if (group == 1) {
-            if (power_data.count > 3) {
-                power_data.count = 0;
-            }
-            power_data.input_power[power_data.count]    = PowerInputCalc(motor->measure.speed_rpm, motor->motor_controller.speed_PID.Output, motor->measure.real_current, power_data.count);
-            power_data.wheel_speed[power_data.count]    = motor->measure.speed_rpm;
-            power_data.predict_output[power_data.count] = motor->motor_controller.speed_PID.Output;
-            power_data.count++;
-            
-        }
-#endif
     }
     
-#if defined(ONE_BOARD) || defined(CHASSIS_BOARD)
-int index = 0;
-    if (dji_motor_instance[index]->stop_flag == MOTOR_ENABLED) {
-        power_data.total_power = TotalPowerCalc(power_data.input_power);
-        for (int i = 0; i < 4; i++) {
-            set                                     = CurrentOutputCalc(power_data.input_power[i], power_data.wheel_speed[i], power_data.predict_output[i]);
-            sender_assignment[1].tx_buff[2 * i]     = (uint8_t)(set >> 8);     // 低八位
-            sender_assignment[1].tx_buff[2 * i + 1] = (uint8_t)(set & 0x00ff); // 高八位
-            motorset[i]                             = set;
-        }
-    }
-#endif
-
 #if defined(CHASSIS_BOARD)
 
     for (size_t i = 0; i < 6; ++i) {   //其他大疆电机发送

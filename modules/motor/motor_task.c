@@ -2,14 +2,13 @@
 #include "LKmotor.h"
 #include "HT04.h"
 #include "dji_motor.h"
-#include "dji_motor.h"
 #include "step_motor.h"
 #include "servo_motor.h"
 #include "robot_def.h"
 #include "DMmotor.h"
 
 uint16_t g_cmd_set   = 2;
-uint16_t* g_power_set=3000 ;
+uint16_t g_power_set = 3000;
 uint16_t g_vout_set  = 2300;
 uint16_t g_iout_set  = 600;
 void pm01_cmd_send( uint16_t new_cmd, uint8_t save_flg )

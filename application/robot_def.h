@@ -3,8 +3,17 @@
 #include "stdint.h"
 #include "ins_task.h"
 
-#define CHASSIS_BOARD // Build the chassis-board image. Change this when building the gimbal board.
-//#define GIMBAL_BOARD
+/*
+ * Default to the chassis image. The gimbal image is built by defining
+ * GIMBAL_BOARD in the selected build target; never define both at once.
+ */
+#if !defined(CHASSIS_BOARD) && !defined(GIMBAL_BOARD)
+#define CHASSIS_BOARD
+#endif
+
+#if defined(CHASSIS_BOARD) && defined(GIMBAL_BOARD)
+#error "Select exactly one Sentinel board image."
+#endif
 
 #define YAW_K                  0.00025f
 #define PITCH_K                0.00025f

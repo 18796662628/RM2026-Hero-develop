@@ -8,7 +8,7 @@ static WattmeterInstance *wattmeter = NULL;
 
 static void WattmeterDecode(CANInstance *can_instance)
 {
-    uint8_t *rx_buffer = &can_instance->rx_buff;
+    uint8_t *rx_buffer = can_instance->rx_buff;
 
     wattmeter->voltage = (float)((int16_t)(rx_buffer[1] << 8) | rx_buffer[0]) / 100.0;
     wattmeter->current = (float)((int16_t)(rx_buffer[3] << 8) | rx_buffer[2]) / 100.0;
